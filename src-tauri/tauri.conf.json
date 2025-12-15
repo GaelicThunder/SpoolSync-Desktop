@@ -1,0 +1,47 @@
+{
+  "productName": "SpoolSync",
+  "version": "0.1.0",
+  "identifier": "dev.gaelicthunder.spoolsync",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "SpoolSync Desktop",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "shortDescription": "Manage 3D printer filament profiles",
+    "longDescription": "Desktop companion for managing 3D printer filament profiles and syncing to Bambu Lab printers via MQTT"
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
