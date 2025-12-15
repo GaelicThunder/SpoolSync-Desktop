@@ -6,14 +6,14 @@ mod spoolman;
 
 use db::{Database, FilamentProfile, Settings};
 use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand};
-use spoolman::{SpoolmanClient, SpoolmanFilament, SpoolmanResponse};
-use std::sync::Mutex;
+use spoolman::{SpoolmanClient, SpoolmanResponse};
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 struct AppState {
     db: Mutex<Database>,
     mqtt: Mutex<BambuMqttClient>,
-    spoolman: Mutex<SpoolmanClient>,
+    spoolman: Arc<SpoolmanClient>,
 }
 
 #[tauri::command]
@@ -103,7 +103,7 @@ async fn search_spoolman(
     limit: usize,
     offset: usize,
 ) -> Result<SpoolmanResponse, String> {
-    let spoolman = state.spoolman.lock().unwrap();
+    let spoolman = Arc::clone(&state.spoolman);
     spoolman
         .search_filaments(query, vendor, material, limit, offset)
         .await
@@ -111,21 +111,21 @@ async fn search_spoolman(
 
 #[tauri::command]
 async fn get_spoolman_brands(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let spoolman = state.spoolman.lock().unwrap();
+    let spoolman = Arc::clone(&state.spoolman);
     spoolman.get_brands().await
 }
 
 fn main() {
     let db = Database::new().expect("Failed to initialize database");
     let mqtt = BambuMqttClient::new().expect("Failed to initialize MQTT client");
-    let spoolman = SpoolmanClient::new();
+    let spoolman = Arc::new(SpoolmanClient::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             db: Mutex::new(db),
             mqtt: Mutex::new(mqtt),
-            spoolman: Mutex::new(spoolman),
+            spoolman,
         })
         .invoke_handler(tauri::generate_handler![
             greet,

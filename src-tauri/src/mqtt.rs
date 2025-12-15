@@ -35,14 +35,11 @@ impl BambuMqttClient {
         self.runtime.block_on(async {
             let (_client, mut eventloop) = Self::create_client(&config).await?;
             
-            tokio::time::timeout(Duration::from_secs(3), async {
-                eventloop.poll().await
-            })
-            .await
-            .map_err(|_| "Connection timeout")??
-            .map_err(|e| format!("Connection failed: {}", e))?;
-            
-            Ok(format!("Successfully connected to printer at {}", config.ip))
+            match tokio::time::timeout(Duration::from_secs(3), eventloop.poll()).await {
+                Ok(Ok(_)) => Ok(format!("Successfully connected to printer at {}", config.ip)),
+                Ok(Err(e)) => Err(format!("Connection failed: {}", e)),
+                Err(_) => Err("Connection timeout".to_string()),
+            }
         })
     }
 
@@ -76,24 +73,24 @@ impl BambuMqttClient {
                 .await
                 .map_err(|e| format!("Failed to publish: {}", e))?;
 
-            let result = tokio::time::timeout(Duration::from_secs(5), async {
-                while let Ok(event) = eventloop.poll().await {
-                    if let Event::Incoming(Packet::PubAck(_)) = event {
-                        return Ok::<(), String>(());
+            match tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    match eventloop.poll().await {
+                        Ok(Event::Incoming(Packet::PubAck(_))) => return Ok(()),
+                        Ok(_) => continue,
+                        Err(e) => return Err(format!("MQTT error: {}", e)),
                     }
                 }
-                Err("No acknowledgment received".to_string())
             })
             .await
-            .map_err(|_| "Connection timeout".to_string())?
-            .map_err(|e| format!("MQTT error: {}", e))?;
-
-            result.map_err(|e| e)?;
-
-            Ok(format!(
-                "Successfully synced to AMS {} Tray {}",
-                command.ams_id, command.tray_id
-            ))
+            {
+                Ok(Ok(())) => Ok(format!(
+                    "Successfully synced to AMS {} Tray {}",
+                    command.ams_id, command.tray_id
+                )),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err("Sync timeout".to_string()),
+            }
         })
     }
 
