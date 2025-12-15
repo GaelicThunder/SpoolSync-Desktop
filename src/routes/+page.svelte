@@ -1,12 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Header from '$lib/components/Header.svelte';
-  import { favorites, loadFavorites, removeFavorite } from '$lib/stores/filaments';
+  import SyncDialog from '$lib/components/SyncDialog.svelte';
+  import { favorites, loadFavorites, removeFavorite, type FilamentProfile } from '$lib/stores/filaments';
+  import { loadSettings } from '$lib/stores/settings';
   
   let searchQuery = '';
+  let showSyncDialog = false;
+  let selectedProfile: FilamentProfile | null = null;
   
   onMount(() => {
     loadFavorites();
+    loadSettings();
   });
 
   $: filteredFilaments = $favorites.filter(f => 
@@ -19,10 +24,15 @@
       await removeFavorite(id);
     }
   }
+
+  function openSyncDialog(profile: FilamentProfile) {
+    selectedProfile = profile;
+    showSyncDialog = true;
+  }
 </script>
 
 <div class="flex flex-col h-full">
-  <Header title="Filament Library" subtitle="Browse and sync your filaments" />
+  <Header title="Filament Library" subtitle="Browse and sync your filaments"></Header>
 
   <div class="p-8 space-y-6">
     <div class="flex gap-4">
@@ -45,7 +55,7 @@
           No favorites yet!
         </p>
         <p class="text-gray-500 dark:text-gray-500 mt-2">
-          Create custom profiles or browse SpoolmanDB to add favorites
+          Go to Custom tab to create your first profile
         </p>
       </div>
     {:else}
@@ -56,7 +66,7 @@
               <div
                 class="w-16 h-16 rounded-lg flex-shrink-0 border-2 border-gray-200 dark:border-gray-700"
                 style="background-color: {filament.color}"
-              />
+              ></div>
               
               <div class="flex-1">
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -77,7 +87,10 @@
             </div>
 
             <div class="flex gap-2 mt-4">
-              <button class="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
+              <button 
+                onclick={() => openSyncDialog(filament)}
+                class="flex-1 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              >
                 Sync to AMS
               </button>
               <button 
@@ -98,3 +111,7 @@
     {/if}
   </div>
 </div>
+
+{#if showSyncDialog && selectedProfile}
+  <SyncDialog profile={selectedProfile} onClose={() => showSyncDialog = false} />
+{/if}
