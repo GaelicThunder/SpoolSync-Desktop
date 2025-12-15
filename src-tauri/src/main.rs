@@ -1,38 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
+mod mqtt;
 
-use db::Database;
-use serde::{Deserialize, Serialize};
+use db::{Database, FilamentProfile, Settings};
+use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand};
 use std::sync::Mutex;
 use tauri::State;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct FilamentProfile {
-    id: Option<i64>,
-    brand: String,
-    material: String,
-    color: String,
-    nozzle_temp: i32,
-    bed_temp: i32,
-    density: f64,
-    diameter: f64,
-    is_favorite: bool,
-    is_custom: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Settings {
-    printer_ip: String,
-    printer_serial: String,
-    access_code: String,
-    default_ams: i32,
-    default_tray: i32,
-    auto_sync: bool,
-}
-
 struct AppState {
     db: Mutex<Database>,
+    mqtt: Mutex<BambuMqttClient>,
 }
 
 #[tauri::command]
@@ -94,12 +72,32 @@ fn save_settings(state: State<AppState>, settings: Settings) -> Result<(), Strin
     db.save_settings(settings).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn test_printer_connection(state: State<AppState>, config: BambuPrinterConfig) -> Result<String, String> {
+    let mqtt = state.mqtt.lock().unwrap();
+    mqtt.test_connection(config)
+}
+
+#[tauri::command]
+fn sync_to_ams(
+    state: State<AppState>,
+    config: BambuPrinterConfig,
+    command: FilamentSyncCommand,
+) -> Result<String, String> {
+    let mqtt = state.mqtt.lock().unwrap();
+    mqtt.sync_filament(config, command)
+}
+
 fn main() {
     let db = Database::new().expect("Failed to initialize database");
+    let mqtt = BambuMqttClient::new().expect("Failed to initialize MQTT client");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(AppState { db: Mutex::new(db) })
+        .manage(AppState {
+            db: Mutex::new(db),
+            mqtt: Mutex::new(mqtt),
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_favorites,
@@ -111,6 +109,8 @@ fn main() {
             delete_custom_profile,
             get_settings,
             save_settings,
+            test_printer_connection,
+            sync_to_ams,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
