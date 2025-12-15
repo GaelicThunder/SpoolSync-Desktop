@@ -12,7 +12,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <Header title="Color Browser" subtitle="Visual gallery of filament colors" />
+  <Header title="Color Browser" subtitle="Visual gallery of filament colors"></Header>
 
   <div class="p-8 space-y-6">
     <div class="flex gap-4">
@@ -32,12 +32,12 @@
     </div>
 
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-      {#each mockColors as color}
+      {#each mockColors as color (color.id)}
         <button class="group bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-xl transition-all p-4">
           <div
             class="w-full aspect-square rounded-lg mb-3 border-2 border-gray-200 dark:border-gray-700 group-hover:border-primary transition-colors"
             style="background-color: {color.hex}"
-          />
+          ></div>
           
           <h4 class="font-semibold text-gray-900 dark:text-white text-sm">
             {color.name}

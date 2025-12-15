@@ -1,5 +1,4 @@
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, TlsConfiguration, Transport};
-use rustls::ClientConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +33,15 @@ impl BambuMqttClient {
 
     pub fn test_connection(&self, config: BambuPrinterConfig) -> Result<String, String> {
         self.runtime.block_on(async {
-            let client = Self::create_client(&config).await?;
+            let (_client, mut eventloop) = Self::create_client(&config).await?;
+            
+            tokio::time::timeout(Duration::from_secs(3), async {
+                eventloop.poll().await
+            })
+            .await
+            .map_err(|_| "Connection timeout")??
+            .map_err(|e| format!("Connection failed: {}", e))?;
+            
             Ok(format!("Successfully connected to printer at {}", config.ip))
         })
     }
@@ -69,17 +76,19 @@ impl BambuMqttClient {
                 .await
                 .map_err(|e| format!("Failed to publish: {}", e))?;
 
-            tokio::time::timeout(Duration::from_secs(5), async {
+            let result = tokio::time::timeout(Duration::from_secs(5), async {
                 while let Ok(event) = eventloop.poll().await {
                     if let Event::Incoming(Packet::PubAck(_)) = event {
-                        return Ok(());
+                        return Ok::<(), String>(());
                     }
                 }
-                Err("No acknowledgment received")
+                Err("No acknowledgment received".to_string())
             })
             .await
-            .map_err(|_| "Connection timeout")??
+            .map_err(|_| "Connection timeout".to_string())?
             .map_err(|e| format!("MQTT error: {}", e))?;
+
+            result.map_err(|e| e)?;
 
             Ok(format!(
                 "Successfully synced to AMS {} Tray {}",
@@ -95,14 +104,14 @@ impl BambuMqttClient {
         mqttoptions.set_credentials("bblp", &config.access_code);
         mqttoptions.set_keep_alive(Duration::from_secs(30));
 
-        let mut root_store = rustls::RootCertStore::empty();
+        let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
         for cert in rustls_native_certs::load_native_certs()
             .map_err(|e| format!("Failed to load native certs: {}", e))?
         {
             root_store.add(cert).ok();
         }
 
-        let client_config = ClientConfig::builder()
+        let client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
