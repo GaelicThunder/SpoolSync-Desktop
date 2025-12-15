@@ -49,7 +49,7 @@ impl BambuMqttClient {
         command: FilamentSyncCommand,
     ) -> Result<String, String> {
         self.runtime.block_on(async {
-            let (mut client, mut eventloop) = Self::create_client(&config).await?;
+            let (client, mut eventloop) = Self::create_client(&config).await?;
 
             let topic = format!("device/{}/request", config.serial);
 
