@@ -1,0 +1,3 @@
+# Icon placeholder
+# Generate icons with: npm run tauri icon path/to/icon.png
+# Or use default Tauri icons for now
