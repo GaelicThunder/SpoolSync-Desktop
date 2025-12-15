@@ -1,23 +1,33 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Header from '$lib/components/Header.svelte';
+  import { settings, loadSettings, saveSettings, type Settings } from '$lib/stores/settings';
 
-  let settings = {
-    printerIp: '',
-    printerSerial: '',
-    accessCode: '',
-    defaultAms: 0,
-    defaultTray: 0,
-    autoSync: false,
-    darkMode: false,
+  let localSettings: Settings = {
+    printer_ip: '',
+    printer_serial: '',
+    access_code: '',
+    default_ams: 0,
+    default_tray: 0,
+    auto_sync: false,
   };
+
+  onMount(async () => {
+    await loadSettings();
+    localSettings = { ...$settings };
+  });
 
   function testConnection() {
     alert('Testing connection... (MQTT integration coming in Phase 7)');
   }
 
-  function saveSettings() {
-    console.log('Saving settings:', settings);
-    alert('Settings saved! (Database integration coming in Phase 3)');
+  async function handleSave() {
+    try {
+      await saveSettings(localSettings);
+      alert('Settings saved successfully!');
+    } catch (error) {
+      alert('Failed to save settings: ' + error);
+    }
   }
 </script>
 
@@ -38,7 +48,7 @@
             </label>
             <input
               type="text"
-              bind:value={settings.printerIp}
+              bind:value={localSettings.printer_ip}
               placeholder="192.168.1.100"
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             />
@@ -50,7 +60,7 @@
             </label>
             <input
               type="text"
-              bind:value={settings.printerSerial}
+              bind:value={localSettings.printer_serial}
               placeholder="01S00A12345678"
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             />
@@ -62,7 +72,7 @@
             </label>
             <input
               type="password"
-              bind:value={settings.accessCode}
+              bind:value={localSettings.access_code}
               placeholder="********"
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             />
@@ -91,7 +101,7 @@
               Default AMS Unit
             </label>
             <select
-              bind:value={settings.defaultAms}
+              bind:value={localSettings.default_ams}
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             >
               <option value={0}>AMS 1</option>
@@ -106,7 +116,7 @@
               Default Tray
             </label>
             <select
-              bind:value={settings.defaultTray}
+              bind:value={localSettings.default_tray}
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             >
               <option value={0}>Tray 1</option>
@@ -133,30 +143,15 @@
             </div>
             <input
               type="checkbox"
-              bind:checked={settings.autoSync}
+              bind:checked={localSettings.auto_sync}
               class="w-6 h-6 text-primary focus:ring-primary border-gray-300 rounded"
-            />
-          </label>
-
-          <label class="flex items-center justify-between cursor-pointer">
-            <div>
-              <span class="font-medium text-gray-900 dark:text-white">Dark mode</span>
-              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Use dark theme (coming soon)
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              bind:checked={settings.darkMode}
-              disabled
-              class="w-6 h-6 text-primary focus:ring-primary border-gray-300 rounded opacity-50"
             />
           </label>
         </div>
       </div>
 
       <button
-        on:click={saveSettings}
+        on:click={handleSave}
         class="w-full px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-lg"
       >
         Save Settings

@@ -1,19 +1,50 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Header from '$lib/components/Header.svelte';
+  import { customProfiles, loadCustomProfiles, createCustomProfile, deleteCustomProfile, type FilamentProfile } from '$lib/stores/filaments';
 
   let formData = {
     brand: '',
-    material: '',
+    material: 'PLA',
     color: '#FF5733',
-    nozzleTemp: 220,
-    bedTemp: 60,
+    nozzle_temp: 220,
+    bed_temp: 60,
     density: 1.24,
     diameter: 1.75,
   };
 
-  function handleSubmit() {
-    console.log('Creating custom profile:', formData);
-    alert('Custom profile created! (Database integration coming in Phase 3)');
+  onMount(() => {
+    loadCustomProfiles();
+  });
+
+  async function handleSubmit() {
+    try {
+      const profile: FilamentProfile = {
+        ...formData,
+        is_favorite: true,
+        is_custom: true,
+      };
+      
+      await createCustomProfile(profile);
+      
+      formData = {
+        brand: '',
+        material: 'PLA',
+        color: '#FF5733',
+        nozzle_temp: 220,
+        bed_temp: 60,
+        density: 1.24,
+        diameter: 1.75,
+      };
+    } catch (error) {
+      alert('Failed to create profile: ' + error);
+    }
+  }
+
+  async function handleDelete(id: number) {
+    if (confirm('Delete this custom profile?')) {
+      await deleteCustomProfile(id);
+    }
   }
 </script>
 
@@ -50,7 +81,6 @@
               required
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             >
-              <option value="">Select material</option>
               <option value="PLA">PLA</option>
               <option value="PETG">PETG</option>
               <option value="ABS">ABS</option>
@@ -75,6 +105,7 @@
               bind:value={formData.color}
               placeholder="#FF5733"
               required
+              pattern="^#[0-9A-Fa-f]{6}$"
               class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             />
           </div>
@@ -87,7 +118,7 @@
             </label>
             <input
               type="number"
-              bind:value={formData.nozzleTemp}
+              bind:value={formData.nozzle_temp}
               min="150"
               max="300"
               required
@@ -101,7 +132,7 @@
             </label>
             <input
               type="number"
-              bind:value={formData.bedTemp}
+              bind:value={formData.bed_temp}
               min="0"
               max="120"
               required
@@ -151,11 +182,35 @@
 
       <div class="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
         <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Your Custom Profiles
+          Your Custom Profiles ({$customProfiles.length})
         </h4>
-        <p class="text-gray-500 dark:text-gray-400 text-center py-8">
-          No custom profiles yet. Create your first one above!
-        </p>
+        
+        {#if $customProfiles.length === 0}
+          <p class="text-gray-500 dark:text-gray-400 text-center py-8">
+            No custom profiles yet. Create your first one above!
+          </p>
+        {:else}
+          <div class="space-y-3">
+            {#each $customProfiles as profile (profile.id)}
+              <div class="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div
+                  class="w-12 h-12 rounded-lg flex-shrink-0 border-2 border-gray-300 dark:border-gray-600"
+                  style="background-color: {profile.color}"
+                />
+                <div class="flex-1">
+                  <p class="font-semibold text-gray-900 dark:text-white">{profile.brand}</p>
+                  <p class="text-sm text-gray-600 dark:text-gray-400">{profile.material} · {profile.nozzle_temp}°C</p>
+                </div>
+                <button
+                  onclick={() => handleDelete(profile.id!)}
+                  class="px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </div>
   </div>
