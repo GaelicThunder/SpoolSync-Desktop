@@ -29,7 +29,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [],
     "shortDescription": "Manage 3D printer filament profiles",
     "longDescription": "Desktop companion for managing 3D printer filament profiles and syncing to Bambu Lab printers via MQTT"
   },
