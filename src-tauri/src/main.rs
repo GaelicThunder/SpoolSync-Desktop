@@ -2,15 +2,18 @@
 
 mod db;
 mod mqtt;
+mod spoolman;
 
 use db::{Database, FilamentProfile, Settings};
 use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand};
+use spoolman::{SpoolmanClient, SpoolmanFilament, SpoolmanResponse};
 use std::sync::Mutex;
 use tauri::State;
 
 struct AppState {
     db: Mutex<Database>,
     mqtt: Mutex<BambuMqttClient>,
+    spoolman: Mutex<SpoolmanClient>,
 }
 
 #[tauri::command]
@@ -73,7 +76,10 @@ fn save_settings(state: State<AppState>, settings: Settings) -> Result<(), Strin
 }
 
 #[tauri::command]
-fn test_printer_connection(state: State<AppState>, config: BambuPrinterConfig) -> Result<String, String> {
+fn test_printer_connection(
+    state: State<AppState>,
+    config: BambuPrinterConfig,
+) -> Result<String, String> {
     let mqtt = state.mqtt.lock().unwrap();
     mqtt.test_connection(config)
 }
@@ -88,15 +94,38 @@ fn sync_to_ams(
     mqtt.sync_filament(config, command)
 }
 
+#[tauri::command]
+async fn search_spoolman(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    vendor: Option<String>,
+    material: Option<String>,
+    limit: usize,
+    offset: usize,
+) -> Result<SpoolmanResponse, String> {
+    let spoolman = state.spoolman.lock().unwrap();
+    spoolman
+        .search_filaments(query, vendor, material, limit, offset)
+        .await
+}
+
+#[tauri::command]
+async fn get_spoolman_brands(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let spoolman = state.spoolman.lock().unwrap();
+    spoolman.get_brands().await
+}
+
 fn main() {
     let db = Database::new().expect("Failed to initialize database");
     let mqtt = BambuMqttClient::new().expect("Failed to initialize MQTT client");
+    let spoolman = SpoolmanClient::new();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             db: Mutex::new(db),
             mqtt: Mutex::new(mqtt),
+            spoolman: Mutex::new(spoolman),
         })
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -111,6 +140,8 @@ fn main() {
             save_settings,
             test_printer_connection,
             sync_to_ams,
+            search_spoolman,
+            get_spoolman_brands,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
