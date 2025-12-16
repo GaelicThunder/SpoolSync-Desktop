@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpoolmanFilament {
@@ -20,11 +21,11 @@ pub struct SpoolmanFilament {
     #[serde(default)]
     pub spool_type: Option<String>,
     #[serde(rename = "extruder_temp", default)]
-    pub settings_extruder_temp: Option<i32>,
+    pub extruder_temp: Option<i32>,
     #[serde(rename = "extruder_temp_range", default)]
     pub extruder_temp_range: Option<Vec<i32>>,
     #[serde(rename = "bed_temp", default)]
-    pub settings_bed_temp: Option<i32>,
+    pub bed_temp: Option<i32>,
     #[serde(rename = "bed_temp_range", default)]
     pub bed_temp_range: Option<Vec<i32>>,
     #[serde(default)]
@@ -48,6 +49,7 @@ pub struct SpoolmanResponse {
 pub struct SpoolmanClient {
     client: reqwest::Client,
     base_url: String,
+    cache: Mutex<Option<Vec<SpoolmanFilament>>>,
 }
 
 impl SpoolmanClient {
@@ -55,7 +57,46 @@ impl SpoolmanClient {
         Self {
             client: reqwest::Client::new(),
             base_url: "https://donkie.github.io/SpoolmanDB".to_string(),
+            cache: Mutex::new(None),
         }
+    }
+
+    async fn ensure_cache(&self) -> Result<(), String> {
+        let mut cache = self.cache.lock().unwrap();
+        
+        if cache.is_some() {
+            println!("✅ Using cached SpoolmanDB data");
+            return Ok(());
+        }
+
+        drop(cache);
+
+        let url = format!("{}/filaments.json", self.base_url);
+        println!("📥 Downloading SpoolmanDB from: {}", url);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch: {}", e))?;
+
+        println!("✅ SpoolmanDB response status: {}", response.status());
+
+        let filaments: Vec<SpoolmanFilament> = response
+            .json()
+            .await
+            .map_err(|e| {
+                eprintln!("JSON parse error: {:?}", e);
+                format!("Failed to parse JSON: {}", e)
+            })?;
+
+        println!("✅ Cached {} filaments from SpoolmanDB", filaments.len());
+
+        let mut cache = self.cache.lock().unwrap();
+        *cache = Some(filaments);
+
+        Ok(())
     }
 
     pub async fn search_filaments(
@@ -66,27 +107,11 @@ impl SpoolmanClient {
         limit: usize,
         offset: usize,
     ) -> Result<SpoolmanResponse, String> {
-        let url = format!("{}/filaments.json", self.base_url);
-        println!("Fetching SpoolmanDB from: {}", url);
+        self.ensure_cache().await?;
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch: {}", e))?;
-
-        println!("SpoolmanDB response status: {}", response.status());
-
-        let mut filaments: Vec<SpoolmanFilament> = response
-            .json()
-            .await
-            .map_err(|e| {
-                eprintln!("JSON parse error: {:?}", e);
-                format!("Failed to parse JSON: {}", e)
-            })?;
-
-        println!("Loaded {} filaments from SpoolmanDB", filaments.len());
+        let cache = self.cache.lock().unwrap();
+        let mut filaments = cache.as_ref().unwrap().clone();
+        drop(cache);
 
         if let Some(q) = query {
             let q_lower = q.to_lowercase();
@@ -118,66 +143,51 @@ impl SpoolmanClient {
     }
 
     pub async fn get_brands(&self) -> Result<Vec<String>, String> {
-        let url = format!("{}/filaments.json", self.base_url);
-        println!("Fetching brands from SpoolmanDB...");
+        self.ensure_cache().await?;
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch: {}", e))?;
-
-        let filaments: Vec<SpoolmanFilament> = response
-            .json()
-            .await
-            .map_err(|e| {
-                eprintln!("JSON parse error: {:?}", e);
-                format!("Failed to parse JSON: {}", e)
-            })?;
+        let cache = self.cache.lock().unwrap();
+        let filaments = cache.as_ref().unwrap();
 
         let mut brands: Vec<String> = filaments
-            .into_iter()
-            .map(|f| f.manufacturer)
+            .iter()
+            .map(|f| f.manufacturer.clone())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
 
         brands.sort();
-        println!("Loaded {} unique brands from SpoolmanDB", brands.len());
+        println!("✅ Loaded {} unique brands from cache", brands.len());
 
         Ok(brands)
     }
 
     pub async fn get_materials(&self) -> Result<Vec<String>, String> {
-        let url = format!("{}/filaments.json", self.base_url);
-        println!("Fetching materials from SpoolmanDB...");
+        self.ensure_cache().await?;
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to fetch: {}", e))?;
-
-        let filaments: Vec<SpoolmanFilament> = response
-            .json()
-            .await
-            .map_err(|e| {
-                eprintln!("JSON parse error: {:?}", e);
-                format!("Failed to parse JSON: {}", e)
-            })?;
+        let cache = self.cache.lock().unwrap();
+        let filaments = cache.as_ref().unwrap();
 
         let materials_set: HashSet<String> = filaments
-            .into_iter()
-            .map(|f| f.material)
+            .iter()
+            .map(|f| f.material.clone())
             .collect();
 
         let mut materials: Vec<String> = materials_set.into_iter().collect();
         materials.sort();
 
-        println!("✅ Loaded {} unique materials from SpoolmanDB", materials.len());
+        println!("✅ Loaded {} unique materials from cache", materials.len());
 
         Ok(materials)
+    }
+
+    pub async fn sync_database(&self) -> Result<(), String> {
+        println!("🔄 Force syncing SpoolmanDB...");
+        let mut cache = self.cache.lock().unwrap();
+        *cache = None;
+        drop(cache);
+        
+        self.ensure_cache().await?;
+        println!("✅ SpoolmanDB synced successfully");
+        Ok(())
     }
 }

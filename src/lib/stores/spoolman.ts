@@ -11,8 +11,10 @@ export interface SpoolmanFilament {
   weight: number | null;
   spool_weight: number | null;
   color_hex: string | null;
-  settings_extruder_temp: number | null;
-  settings_bed_temp: number | null;
+  extruder_temp: number | null;
+  bed_temp: number | null;
+  extruder_temp_range: number[] | null;
+  bed_temp_range: number[] | null;
 }
 
 export interface SpoolmanResponse {
@@ -20,7 +22,6 @@ export interface SpoolmanResponse {
   total: number;
 }
 
-let cachedFilaments: SpoolmanFilament[] | null = null;
 let cachedBrands: string[] | null = null;
 let cachedMaterials: string[] | null = null;
 
@@ -64,7 +65,6 @@ export async function searchSpoolman(
 
 export async function loadBrands() {
   if (cachedBrands) {
-    console.log('Using cached brands');
     spoolmanBrands.set(cachedBrands);
     return;
   }
@@ -80,7 +80,6 @@ export async function loadBrands() {
 
 export async function loadMaterials() {
   if (cachedMaterials) {
-    console.log('Using cached materials');
     spoolmanMaterials.set(cachedMaterials);
     return;
   }
@@ -91,5 +90,26 @@ export async function loadMaterials() {
     spoolmanMaterials.set(materials);
   } catch (error) {
     console.error('Failed to load materials:', error);
+  }
+}
+
+export async function syncSpoolmanDB() {
+  try {
+    await invoke('sync_spoolman_db');
+    cachedBrands = null;
+    cachedMaterials = null;
+    await loadBrands();
+    await loadMaterials();
+  } catch (error) {
+    console.error('Failed to sync SpoolmanDB:', error);
+    throw error;
+  }
+}
+
+export async function debugFilament(filament: SpoolmanFilament) {
+  try {
+    await invoke('debug_filament', { filament });
+  } catch (error) {
+    console.error('Debug failed:', error);
   }
 }

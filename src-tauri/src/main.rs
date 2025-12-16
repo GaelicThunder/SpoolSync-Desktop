@@ -6,7 +6,7 @@ mod spoolman;
 
 use db::{Database, FilamentProfile, Settings};
 use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand};
-use spoolman::{SpoolmanClient, SpoolmanResponse};
+use spoolman::{SpoolmanClient, SpoolmanFilament, SpoolmanResponse};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -133,6 +133,35 @@ async fn get_spoolman_brands(state: State<'_, AppState>) -> Result<Vec<String>, 
     spoolman.get_brands().await
 }
 
+#[tauri::command]
+async fn sync_spoolman_db(state: State<'_, AppState>) -> Result<(), String> {
+    let spoolman = Arc::clone(&state.spoolman);
+    spoolman.sync_database().await
+}
+
+#[tauri::command]
+fn debug_filament(filament: SpoolmanFilament) {
+    println!("\n🔍 DEBUG FILAMENT DATA:");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("ID: {}", filament.id);
+    println!("Manufacturer: {}", filament.manufacturer);
+    println!("Name: {}", filament.name);
+    println!("Material: {}", filament.material);
+    println!("Density: {} g/cm³", filament.density);
+    println!("Diameter: {} mm", filament.diameter);
+    println!("Color Hex: {:?}", filament.color_hex);
+    println!("Weight: {:?} g", filament.weight);
+    println!("Spool Weight: {:?} g", filament.spool_weight);
+    println!("Extruder Temp: {:?}°C", filament.extruder_temp);
+    println!("Extruder Temp Range: {:?}", filament.extruder_temp_range);
+    println!("Bed Temp: {:?}°C", filament.bed_temp);
+    println!("Bed Temp Range: {:?}", filament.bed_temp_range);
+    println!("Finish: {:?}", filament.finish);
+    println!("Translucent: {}", filament.translucent);
+    println!("Glow: {}", filament.glow);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+}
+
 fn main() {
     let db = Database::new().expect("Failed to initialize database");
     let mqtt = BambuMqttClient::new().expect("Failed to initialize MQTT client");
@@ -163,6 +192,8 @@ fn main() {
             sync_to_ams,
             search_spoolman,
             get_spoolman_brands,
+            sync_spoolman_db,
+            debug_filament,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
