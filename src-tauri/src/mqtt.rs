@@ -205,53 +205,71 @@ impl BambuMqttClient {
                 .map_err(|e| format!("Subscribe failed: {}", e))?;
 
             println!("⏳ Waiting for AMS status message (30s timeout)...");
+            println!("💡 Make sure printer is powered on and connected\n");
             
             let result = tokio::time::timeout(Duration::from_secs(30), async {
+                let mut message_count = 0;
                 loop {
                     match event_loop.poll().await {
                         Ok(Event::Incoming(Packet::Publish(publish))) => {
+                            message_count += 1;
                             if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
+                                println!("📨 Message #{}: Received {} bytes", message_count, payload_str.len());
+                                
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
-                                    if let Some(ams_array) = json.get("print").and_then(|p| p.get("ams")).and_then(|a| a.as_array()) {
-                                        let mut statuses = Vec::new();
+                                    if let Some(print_obj) = json.get("print") {
+                                        println!("   ✅ Found 'print' object");
                                         
-                                        for (ams_idx, ams_obj) in ams_array.iter().enumerate() {
-                                            if let Some(tray_array) = ams_obj.get("tray").and_then(|t| t.as_array()) {
-                                                let mut trays = Vec::new();
+                                        if let Some(ams_obj) = print_obj.get("ams") {
+                                            println!("   ✅ Found 'ams' object");
+                                            
+                                            if let Some(ams_array) = ams_obj.get("ams").and_then(|a| a.as_array()) {
+                                                println!("   ✅ Found 'ams.ams' array with {} units", ams_array.len());
+                                                let mut statuses = Vec::new();
                                                 
-                                                for (tray_idx, tray_obj) in tray_array.iter().enumerate() {
-                                                    let tray_type = tray_obj.get("tray_type").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                                                    let tray_color = tray_obj.get("tray_color").and_then(|c| c.as_str()).unwrap_or("000000").to_string();
-                                                    let nozzle_temp_min = tray_obj.get("nozzle_temp_min").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
-                                                    let nozzle_temp_max = tray_obj.get("nozzle_temp_max").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
-                                                    
-                                                    if !tray_type.is_empty() {
-                                                        trays.push(AMSTrayInfo {
-                                                            tray_id: tray_idx as u8,
-                                                            tray_type,
-                                                            tray_color,
-                                                            nozzle_temp_min,
-                                                            nozzle_temp_max,
-                                                        });
+                                                for (ams_idx, ams_unit) in ams_array.iter().enumerate() {
+                                                    if let Some(tray_array) = ams_unit.get("tray").and_then(|t| t.as_array()) {
+                                                        println!("   📦 AMS {}: {} trays", ams_idx, tray_array.len());
+                                                        let mut trays = Vec::new();
+                                                        
+                                                        for (tray_idx, tray_obj) in tray_array.iter().enumerate() {
+                                                            let tray_type = tray_obj.get("tray_type").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                                                            let tray_color = tray_obj.get("tray_color").and_then(|c| c.as_str()).unwrap_or("000000").to_string();
+                                                            let nozzle_temp_min = tray_obj.get("nozzle_temp_min").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
+                                                            let nozzle_temp_max = tray_obj.get("nozzle_temp_max").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
+                                                            
+                                                            if !tray_type.is_empty() {
+                                                                println!("      Tray {}: {} (#{}) {}°C-{}°C", 
+                                                                    tray_idx, tray_type, tray_color, nozzle_temp_min, nozzle_temp_max);
+                                                                trays.push(AMSTrayInfo {
+                                                                    tray_id: tray_idx as u8,
+                                                                    tray_type,
+                                                                    tray_color,
+                                                                    nozzle_temp_min,
+                                                                    nozzle_temp_max,
+                                                                });
+                                                            }
+                                                        }
+                                                        
+                                                        if !trays.is_empty() {
+                                                            statuses.push(AMSStatus {
+                                                                ams_id: ams_idx as u8,
+                                                                trays,
+                                                            });
+                                                        }
                                                     }
                                                 }
                                                 
-                                                if !trays.is_empty() {
-                                                    statuses.push(AMSStatus {
-                                                        ams_id: ams_idx as u8,
-                                                        trays,
-                                                    });
+                                                if !statuses.is_empty() {
+                                                    println!("\n✅ Retrieved status for {} AMS unit(s)", statuses.len());
+                                                    client.disconnect().await.ok();
+                                                    return Ok(statuses);
                                                 }
+                                            } else {
+                                                println!("   ⚠️ 'ams.ams' not found or not an array");
                                             }
-                                        }
-                                        
-                                        if !statuses.is_empty() {
-                                            println!("✅ Retrieved status for {} AMS unit(s)", statuses.len());
-                                            for ams in &statuses {
-                                                println!("   AMS {}: {} trays loaded", ams.ams_id, ams.trays.len());
-                                            }
-                                            client.disconnect().await.ok();
-                                            return Ok(statuses);
+                                        } else {
+                                            println!("   ⚠️ 'ams' object not found in 'print'");
                                         }
                                     }
                                 }
@@ -272,7 +290,11 @@ impl BambuMqttClient {
                 Ok(Ok(statuses)) => Ok(statuses),
                 Ok(Err(e)) => Err(e),
                 Err(_) => {
-                    println!("⚠️ No AMS status received within 30s");
+                    println!("\n⚠️ No AMS status received within 30s");
+                    println!("   Make sure:");
+                    println!("   1. Printer is powered ON");
+                    println!("   2. Printer is connected to network");
+                    println!("   3. AMS is connected to printer");
                     Ok(vec![])
                 }
             }
