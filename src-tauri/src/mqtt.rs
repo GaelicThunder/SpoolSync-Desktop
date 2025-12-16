@@ -117,15 +117,14 @@ impl BambuMqttClient {
 
         let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
         
-        match rustls_native_certs::load_native_certs() {
-            Ok(certs) => {
-                for cert in certs {
-                    root_store.add(cert).ok();
-                }
-            }
-            Err(e) => {
-                return Err(format!("Failed to load native certs: {}", e));
-            }
+        let cert_result = rustls_native_certs::load_native_certs();
+        
+        for cert in cert_result.certs {
+            root_store.add(cert).ok();
+        }
+        
+        if !cert_result.errors.is_empty() {
+            eprintln!("Warning: Some certificates failed to load: {:?}", cert_result.errors);
         }
 
         let client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
