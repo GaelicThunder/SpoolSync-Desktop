@@ -36,7 +36,9 @@ impl Database {
         let data_dir = dirs::data_local_dir()
             .ok_or_else(|| rusqlite::Error::InvalidPath(PathBuf::from("No data directory")))?;
         let app_dir = data_dir.join("spoolsync-desktop");
-        std::fs::create_dir_all(&app_dir)?;
+        
+        std::fs::create_dir_all(&app_dir)
+            .map_err(|e| rusqlite::Error::InvalidPath(PathBuf::from(format!("Failed to create dir: {}", e))))?;
 
         let db_path = app_dir.join("spoolsync.db");
         println!("📂 Database path: {:?}", db_path);
