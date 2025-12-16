@@ -41,8 +41,7 @@
   let swatches: FilamentColorSwatch[] = [];
   let totalCount = 0;
   let loading = false;
-  let currentOffset = 0;
-  const limit = 100;
+  let hasMore = true;
 
   let selectedManufacturer = '';
   let selectedMaterial = '';
@@ -71,34 +70,36 @@
   }
 
   async function loadSwatches(reset = false) {
-    if (loading) return;
+    if (loading || (!reset && !hasMore)) return;
     
     loading = true;
     try {
+      const currentOffset = reset ? 0 : swatches.length;
+      
       if (reset) {
-        currentOffset = 0;
         swatches = [];
+        hasMore = true;
       }
 
       const response = await invoke<FilamentColorsResponse>('get_filament_swatches', {
         manufacturer: selectedManufacturer || null,
         materialType: selectedMaterial || null,
-        limit,
+        limit: null,
         offset: currentOffset,
       });
 
-      if (reset) {
-        swatches = response.results;
+      if (response.results.length === 0) {
+        hasMore = false;
       } else {
         swatches = [...swatches, ...response.results];
+        hasMore = response.next !== null;
       }
       
       totalCount = response.count;
-      currentOffset += response.results.length;
-      
       extractFilters();
     } catch (error) {
       console.error('Failed to load swatches:', error);
+      hasMore = false;
     } finally {
       loading = false;
     }
@@ -112,7 +113,7 @@
     const target = e.target as HTMLDivElement;
     const scrollPercentage = (target.scrollTop + target.clientHeight) / target.scrollHeight;
     
-    if (scrollPercentage > 0.8 && swatches.length < totalCount && !loading) {
+    if (scrollPercentage > 0.8 && hasMore && !loading) {
       loadSwatches();
     }
   }
@@ -179,7 +180,7 @@
 
         <div class="px-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-center">
           <p class="text-sm font-medium text-blue-700 dark:text-blue-300">
-            {totalCount} total swatches
+            {swatches.length} / {totalCount} loaded
           </p>
         </div>
       </div>
@@ -226,8 +227,15 @@
         <p class="text-gray-500 dark:text-gray-400">
           Showing {swatches.length} of {totalCount} swatches
         </p>
-        {#if loading && swatches.length > 0}
+        {#if loading}
           <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mt-4"></div>
+        {:else if hasMore}
+          <button
+            onclick={() => loadSwatches()}
+            class="mt-4 px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+          >
+            Load More
+          </button>
         {/if}
       </div>
     {/if}
