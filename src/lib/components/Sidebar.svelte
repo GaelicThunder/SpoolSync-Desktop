@@ -2,10 +2,11 @@
   import { page } from '$app/stores';
 
   const navItems = [
-    { href: '/', label: 'Favorites', icon: '⭐' },
     { href: '/browse', label: 'Browse', icon: '🔍' },
+    { href: '/ams', label: 'AMS Status', icon: '🎛️' },
+    { href: '/', label: 'Favorites', icon: '⭐' },
+    { href: '/custom', label: 'Custom', icon: '➕' },
     { href: '/colors', label: 'Colors', icon: '🎨' },
-    { href: '/custom', label: 'Custom', icon: '⚙️' },
     { href: '/settings', label: 'Settings', icon: '⚙️' },
   ];
 
