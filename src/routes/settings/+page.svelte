@@ -61,8 +61,9 @@
     testMessage = '';
     try {
       const config = {
-        ip: settings.printer_ip,
-        serial: settings.printer_serial,
+        name: settings.printer_name || 'Bambu Printer',
+        ip_address: settings.printer_ip,
+        serial_number: settings.printer_serial,
         access_code: settings.printer_access_code
       };
       const result = await invoke<string>('test_printer_connection', { config });
