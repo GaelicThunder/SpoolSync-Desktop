@@ -3,22 +3,19 @@ use std::collections::HashSet;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpoolmanFilament {
-    pub id: u32,
-    pub name: Option<String>,
-    pub vendor: Option<SpoolmanVendor>,
-    pub material: Option<String>,
+    pub id: String,
+    pub manufacturer: String,
+    pub name: String,
+    pub material: String,
     pub density: f64,
     pub diameter: f64,
-    pub color_hex: Option<String>,
-    pub spool_weight: Option<f64>,
+    pub color_hex: String,
+    pub weight: Option<f64>,
+    pub spool_weight: Option<i32>,
+    #[serde(rename = "extruder_temp")]
     pub settings_extruder_temp: Option<i32>,
+    #[serde(rename = "bed_temp")]
     pub settings_bed_temp: Option<i32>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SpoolmanVendor {
-    pub id: u32,
-    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,6 +46,7 @@ impl SpoolmanClient {
         offset: usize,
     ) -> Result<SpoolmanResponse, String> {
         let url = format!("{}/filaments.json", self.base_url);
+        println!("Fetching SpoolmanDB from: {}", url);
 
         let response = self
             .client
@@ -57,47 +55,32 @@ impl SpoolmanClient {
             .await
             .map_err(|e| format!("Failed to fetch: {}", e))?;
 
+        println!("SpoolmanDB response status: {}", response.status());
+
         let mut filaments: Vec<SpoolmanFilament> = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse: {}", e))?;
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+        println!("Loaded {} filaments from SpoolmanDB", filaments.len());
 
         if let Some(q) = query {
             let q_lower = q.to_lowercase();
             filaments.retain(|f| {
-                f.name
-                    .as_ref()
-                    .map(|n| n.to_lowercase().contains(&q_lower))
-                    .unwrap_or(false)
-                    || f.vendor
-                        .as_ref()
-                        .map(|v| v.name.to_lowercase().contains(&q_lower))
-                        .unwrap_or(false)
-                    || f.material
-                        .as_ref()
-                        .map(|m| m.to_lowercase().contains(&q_lower))
-                        .unwrap_or(false)
+                f.name.to_lowercase().contains(&q_lower)
+                    || f.manufacturer.to_lowercase().contains(&q_lower)
+                    || f.material.to_lowercase().contains(&q_lower)
             });
         }
 
         if let Some(v) = vendor {
             let v_lower = v.to_lowercase();
-            filaments.retain(|f| {
-                f.vendor
-                    .as_ref()
-                    .map(|vendor| vendor.name.to_lowercase() == v_lower)
-                    .unwrap_or(false)
-            });
+            filaments.retain(|f| f.manufacturer.to_lowercase() == v_lower);
         }
 
         if let Some(m) = material {
             let m_lower = m.to_lowercase();
-            filaments.retain(|f| {
-                f.material
-                    .as_ref()
-                    .map(|mat| mat.to_lowercase() == m_lower)
-                    .unwrap_or(false)
-            });
+            filaments.retain(|f| f.material.to_lowercase() == m_lower);
         }
 
         let total = filaments.len();
@@ -112,6 +95,7 @@ impl SpoolmanClient {
 
     pub async fn get_brands(&self) -> Result<Vec<String>, String> {
         let url = format!("{}/filaments.json", self.base_url);
+        println!("Fetching brands from SpoolmanDB...");
 
         let response = self
             .client
@@ -123,21 +107,24 @@ impl SpoolmanClient {
         let filaments: Vec<SpoolmanFilament> = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse: {}", e))?;
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
         let mut brands: Vec<String> = filaments
             .into_iter()
-            .filter_map(|f| f.vendor.map(|v| v.name))
+            .map(|f| f.manufacturer)
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
 
         brands.sort();
-        brands.dedup();
+        println!("Loaded {} unique brands", brands.len());
 
         Ok(brands)
     }
 
     pub async fn get_materials(&self) -> Result<Vec<String>, String> {
         let url = format!("{}/filaments.json", self.base_url);
+        println!("Fetching materials from SpoolmanDB...");
 
         let response = self
             .client
@@ -149,15 +136,17 @@ impl SpoolmanClient {
         let filaments: Vec<SpoolmanFilament> = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse: {}", e))?;
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
         let materials_set: HashSet<String> = filaments
             .into_iter()
-            .filter_map(|f| f.material)
+            .map(|f| f.material)
             .collect();
 
         let mut materials: Vec<String> = materials_set.into_iter().collect();
         materials.sort();
+
+        println!("Loaded {} unique materials from SpoolmanDB", materials.len());
 
         Ok(materials)
     }
