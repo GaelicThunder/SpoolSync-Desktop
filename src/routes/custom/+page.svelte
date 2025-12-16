@@ -14,10 +14,12 @@
   };
 
   onMount(() => {
+    console.log('Custom page mounted, loading profiles...');
     loadCustomProfiles();
   });
 
-  async function handleSubmit() {
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
     try {
       const profile: FilamentProfile = {
         ...formData,
@@ -25,6 +27,7 @@
         is_custom: true,
       };
       
+      console.log('Creating profile:', profile);
       await createCustomProfile(profile);
       
       formData = {
@@ -37,6 +40,7 @@
         diameter: 1.75,
       };
     } catch (error) {
+      console.error('Failed to create profile:', error);
       alert('Failed to create profile: ' + error);
     }
   }
@@ -49,7 +53,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <Header title="Custom Profiles" subtitle="Create and manage your own filament profiles" />
+  <Header title="Custom Profiles" subtitle="Create and manage your own filament profiles"></Header>
 
   <div class="p-8 max-w-3xl">
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
@@ -57,13 +61,14 @@
         Create New Profile
       </h3>
 
-      <form on:submit|preventDefault={handleSubmit} class="space-y-6">
+      <form onsubmit={handleSubmit} class="space-y-6">
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label for="brand" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Brand
             </label>
             <input
+              id="brand"
               type="text"
               bind:value={formData.brand}
               placeholder="e.g., Generic PLA"
@@ -73,10 +78,11 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label for="material" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Material Type
             </label>
             <select
+              id="material"
               bind:value={formData.material}
               required
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
@@ -91,7 +97,7 @@
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label for="color" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Color (Hex)
           </label>
           <div class="flex gap-3">
@@ -101,11 +107,12 @@
               class="h-12 w-24 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer"
             />
             <input
+              id="color"
               type="text"
               bind:value={formData.color}
               placeholder="#FF5733"
               required
-              pattern="^#[0-9A-Fa-f]{6}$"
+              pattern="^#[0-9A-Fa-f]{{6}}$"
               class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             />
           </div>
@@ -113,10 +120,11 @@
 
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label for="nozzle" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Nozzle Temp (°C)
             </label>
             <input
+              id="nozzle"
               type="number"
               bind:value={formData.nozzle_temp}
               min="150"
@@ -127,10 +135,11 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label for="bed" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Bed Temp (°C)
             </label>
             <input
+              id="bed"
               type="number"
               bind:value={formData.bed_temp}
               min="0"
@@ -143,10 +152,11 @@
 
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label for="density" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Density (g/cm³)
             </label>
             <input
+              id="density"
               type="number"
               bind:value={formData.density}
               step="0.01"
@@ -158,10 +168,11 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label for="diameter" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Diameter (mm)
             </label>
             <select
+              id="diameter"
               bind:value={formData.diameter}
               required
               class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
@@ -196,7 +207,7 @@
                 <div
                   class="w-12 h-12 rounded-lg flex-shrink-0 border-2 border-gray-300 dark:border-gray-600"
                   style="background-color: {profile.color}"
-                />
+                ></div>
                 <div class="flex-1">
                   <p class="font-semibold text-gray-900 dark:text-white">{profile.brand}</p>
                   <p class="text-sm text-gray-600 dark:text-gray-400">{profile.material} · {profile.nozzle_temp}°C</p>
