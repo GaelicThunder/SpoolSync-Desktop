@@ -214,22 +214,22 @@ impl BambuMqttClient {
                         Ok(Event::Incoming(Packet::Publish(publish))) => {
                             message_count += 1;
                             if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
-                                println!("📨 Message #{}: Received {} bytes", message_count, payload_str.len());
+                                println!("\n📨 ========== MESSAGE #{} ==========", message_count);
+                                println!("{}", payload_str);
+                                println!("========== END MESSAGE #{} ==========\n", message_count);
                                 
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
                                     if let Some(print_obj) = json.get("print") {
-                                        println!("   ✅ Found 'print' object");
-                                        
                                         if let Some(ams_obj) = print_obj.get("ams") {
-                                            println!("   ✅ Found 'ams' object");
+                                            println!("✅ Found 'ams' in message #{}", message_count);
                                             
                                             if let Some(ams_array) = ams_obj.get("ams").and_then(|a| a.as_array()) {
-                                                println!("   ✅ Found 'ams.ams' array with {} units", ams_array.len());
+                                                println!("✅ Found 'ams.ams' array with {} units", ams_array.len());
                                                 let mut statuses = Vec::new();
                                                 
                                                 for (ams_idx, ams_unit) in ams_array.iter().enumerate() {
                                                     if let Some(tray_array) = ams_unit.get("tray").and_then(|t| t.as_array()) {
-                                                        println!("   📦 AMS {}: {} trays", ams_idx, tray_array.len());
+                                                        println!("📦 AMS {}: {} trays", ams_idx, tray_array.len());
                                                         let mut trays = Vec::new();
                                                         
                                                         for (tray_idx, tray_obj) in tray_array.iter().enumerate() {
@@ -239,7 +239,7 @@ impl BambuMqttClient {
                                                             let nozzle_temp_max = tray_obj.get("nozzle_temp_max").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
                                                             
                                                             if !tray_type.is_empty() {
-                                                                println!("      Tray {}: {} (#{}) {}°C-{}°C", 
+                                                                println!("   Tray {}: {} (#{}) {}°C-{}°C", 
                                                                     tray_idx, tray_type, tray_color, nozzle_temp_min, nozzle_temp_max);
                                                                 trays.push(AMSTrayInfo {
                                                                     tray_id: tray_idx as u8,
@@ -265,11 +265,7 @@ impl BambuMqttClient {
                                                     client.disconnect().await.ok();
                                                     return Ok(statuses);
                                                 }
-                                            } else {
-                                                println!("   ⚠️ 'ams.ams' not found or not an array");
                                             }
-                                        } else {
-                                            println!("   ⚠️ 'ams' object not found in 'print'");
                                         }
                                     }
                                 }
@@ -277,7 +273,7 @@ impl BambuMqttClient {
                         }
                         Ok(_) => {},
                         Err(e) => {
-                            eprintln!("❌ Event loop error: {:?}", e);
+                            eprintln!("\n❌ Event loop error: {:?}", e);
                             return Err(format!("Connection error: {:?}", e));
                         }
                     }
