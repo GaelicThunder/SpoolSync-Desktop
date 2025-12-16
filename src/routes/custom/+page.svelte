@@ -16,38 +16,72 @@
   };
 
   let brands: string[] = [];
-  let materials: string[] = [];
+  let allMaterials: string[] = [];
+  let displayedMaterials: string[] = [];
   let customBrand = '';
   let customMaterial = '';
   let showCustomBrand = false;
   let showCustomMaterial = false;
   let loadingMaterials = false;
+  let materialsLoaded = false;
+  
+  const MATERIALS_PER_LOAD = 50;
+  let currentMaterialIndex = 0;
+
+  let materialSelectRef: HTMLSelectElement;
 
   onMount(async () => {
-    console.log('Custom page mounted, loading data...');
+    console.log('Custom page mounted');
     await loadCustomProfiles();
     await loadBrandsAndMaterials();
   });
 
   async function loadBrandsAndMaterials() {
+    if (materialsLoaded) {
+      console.log('Materials already cached, skipping fetch');
+      return;
+    }
+
     try {
       loadingMaterials = true;
       brands = await invoke<string[]>('get_brands');
       
-      console.log('Fetching ALL materials from SpoolmanDB...');
-      materials = await invoke<string[]>('get_spoolman_materials');
-      console.log(`Loaded ${materials.length} unique materials from SpoolmanDB`);
+      console.log('Fetching ALL materials from SpoolmanDB (one-time)...');
+      allMaterials = await invoke<string[]>('get_spoolman_materials');
+      console.log(`✅ Cached ${allMaterials.length} materials from SpoolmanDB`);
+      
+      materialsLoaded = true;
+      loadMoreMaterials();
       
       if (brands.length > 0 && !formData.brand) {
         formData.brand = brands[0];
       }
-      if (materials.length > 0 && !formData.material) {
-        formData.material = materials[0];
+      if (allMaterials.length > 0 && !formData.material) {
+        formData.material = allMaterials[0];
       }
     } catch (error) {
       console.error('Failed to load brands/materials:', error);
     } finally {
       loadingMaterials = false;
+    }
+  }
+
+  function loadMoreMaterials() {
+    const nextBatch = allMaterials.slice(
+      currentMaterialIndex,
+      currentMaterialIndex + MATERIALS_PER_LOAD
+    );
+    displayedMaterials = [...displayedMaterials, ...nextBatch];
+    currentMaterialIndex += MATERIALS_PER_LOAD;
+    console.log(`Loaded ${displayedMaterials.length}/${allMaterials.length} materials`);
+  }
+
+  function handleMaterialScroll(e: Event) {
+    const select = e.target as HTMLSelectElement;
+    const scrollPercentage = (select.scrollTop + select.clientHeight) / select.scrollHeight;
+    
+    if (scrollPercentage > 0.8 && currentMaterialIndex < allMaterials.length) {
+      loadMoreMaterials();
     }
   }
 
@@ -69,11 +103,9 @@
       console.log('Creating profile:', profile);
       await createCustomProfile(profile);
       
-      await loadBrandsAndMaterials();
-      
       formData = {
         brand: brands[0] || '',
-        material: materials[0] || '',
+        material: allMaterials[0] || '',
         color: '#FF5733',
         nozzle_temp: 220,
         bed_temp: 60,
@@ -161,7 +193,7 @@
 
             <div>
               <label for="material" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Material Type ({materials.length} from SpoolmanDB)
+                Material Type ({allMaterials.length} total)
               </label>
               {#if showCustomMaterial}
                 <input
@@ -183,13 +215,23 @@
                 <select
                   id="material"
                   bind:value={formData.material}
+                  bind:this={materialSelectRef}
+                  onscroll={handleMaterialScroll}
                   required
-                  class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
+                  size="10"
+                  class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none overflow-y-auto"
+                  style="height: 200px;"
                 >
-                  {#each materials as material}
+                  {#each displayedMaterials as material}
                     <option value={material}>{material}</option>
                   {/each}
+                  {#if currentMaterialIndex < allMaterials.length}
+                    <option disabled class="text-gray-400">Scroll for more...</option>
+                  {/if}
                 </select>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Showing {displayedMaterials.length} of {allMaterials.length} materials
+                </p>
                 <button
                   type="button"
                   onclick={() => showCustomMaterial = true}
