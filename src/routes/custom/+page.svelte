@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import Header from '$lib/components/Header.svelte';
   import { customProfiles, loadCustomProfiles, createCustomProfile, deleteCustomProfile, type FilamentProfile } from '$lib/stores/filaments';
+  import { invoke } from '@tauri-apps/api/core';
 
   let formData = {
     brand: '',
-    material: 'PLA',
+    material: '',
     color: '#FF5733',
     nozzle_temp: 220,
     bed_temp: 60,
@@ -13,16 +15,48 @@
     diameter: 1.75,
   };
 
-  onMount(() => {
-    console.log('Custom page mounted, loading profiles...');
-    loadCustomProfiles();
+  let brands: string[] = [];
+  let materials: string[] = [];
+  let customBrand = '';
+  let customMaterial = '';
+  let showCustomBrand = false;
+  let showCustomMaterial = false;
+
+  onMount(async () => {
+    console.log('Custom page mounted, loading data...');
+    await loadCustomProfiles();
+    await loadBrandsAndMaterials();
   });
+
+  async function loadBrandsAndMaterials() {
+    try {
+      brands = await invoke<string[]>('get_brands');
+      materials = await invoke<string[]>('get_materials');
+      console.log('Loaded brands:', brands);
+      console.log('Loaded materials:', materials);
+      
+      if (brands.length > 0 && !formData.brand) {
+        formData.brand = brands[0];
+      }
+      if (materials.length > 0 && !formData.material) {
+        formData.material = materials[0];
+      }
+    } catch (error) {
+      console.error('Failed to load brands/materials:', error);
+    }
+  }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
     try {
       const profile: FilamentProfile = {
-        ...formData,
+        brand: showCustomBrand && customBrand ? customBrand : formData.brand,
+        material: showCustomMaterial && customMaterial ? customMaterial : formData.material,
+        color: formData.color,
+        nozzle_temp: formData.nozzle_temp,
+        bed_temp: formData.bed_temp,
+        density: formData.density,
+        diameter: formData.diameter,
         is_favorite: true,
         is_custom: true,
       };
@@ -30,15 +64,21 @@
       console.log('Creating profile:', profile);
       await createCustomProfile(profile);
       
+      await loadBrandsAndMaterials();
+      
       formData = {
-        brand: '',
-        material: 'PLA',
+        brand: brands[0] || '',
+        material: materials[0] || '',
         color: '#FF5733',
         nozzle_temp: 220,
         bed_temp: 60,
         density: 1.24,
         diameter: 1.75,
       };
+      customBrand = '';
+      customMaterial = '';
+      showCustomBrand = false;
+      showCustomMaterial = false;
     } catch (error) {
       console.error('Failed to create profile:', error);
       alert('Failed to create profile: ' + error);
@@ -49,6 +89,10 @@
     if (confirm('Delete this custom profile?')) {
       await deleteCustomProfile(id);
     }
+  }
+
+  function handleCancel() {
+    goto('/');
   }
 </script>
 
@@ -67,32 +111,82 @@
             <label for="brand" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Brand
             </label>
-            <input
-              id="brand"
-              type="text"
-              bind:value={formData.brand}
-              placeholder="e.g., Generic PLA"
-              required
-              class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
-            />
+            {#if showCustomBrand}
+              <input
+                id="brand"
+                type="text"
+                bind:value={customBrand}
+                placeholder="Enter custom brand"
+                required
+                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
+              />
+              <button
+                type="button"
+                onclick={() => showCustomBrand = false}
+                class="text-xs text-primary hover:underline mt-1"
+              >
+                ← Choose from list
+              </button>
+            {:else}
+              <select
+                id="brand"
+                bind:value={formData.brand}
+                required
+                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
+              >
+                {#each brands as brand}
+                  <option value={brand}>{brand}</option>
+                {/each}
+              </select>
+              <button
+                type="button"
+                onclick={() => showCustomBrand = true}
+                class="text-xs text-primary hover:underline mt-1"
+              >
+                + Add custom brand
+              </button>
+            {/if}
           </div>
 
           <div>
             <label for="material" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Material Type
             </label>
-            <select
-              id="material"
-              bind:value={formData.material}
-              required
-              class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
-            >
-              <option value="PLA">PLA</option>
-              <option value="PETG">PETG</option>
-              <option value="ABS">ABS</option>
-              <option value="TPU">TPU</option>
-              <option value="Nylon">Nylon</option>
-            </select>
+            {#if showCustomMaterial}
+              <input
+                id="material"
+                type="text"
+                bind:value={customMaterial}
+                placeholder="Enter custom material"
+                required
+                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
+              />
+              <button
+                type="button"
+                onclick={() => showCustomMaterial = false}
+                class="text-xs text-primary hover:underline mt-1"
+              >
+                ← Choose from list
+              </button>
+            {:else}
+              <select
+                id="material"
+                bind:value={formData.material}
+                required
+                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
+              >
+                {#each materials as material}
+                  <option value={material}>{material}</option>
+                {/each}
+              </select>
+              <button
+                type="button"
+                onclick={() => showCustomMaterial = true}
+                class="text-xs text-primary hover:underline mt-1"
+              >
+                + Add custom material
+              </button>
+            {/if}
           </div>
         </div>
 
@@ -112,7 +206,6 @@
               bind:value={formData.color}
               placeholder="#FF5733"
               required
-              pattern="^#[0-9A-Fa-f]{'{6}'}$"
               class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
             />
           </div>
@@ -183,12 +276,21 @@
           </div>
         </div>
 
-        <button
-          type="submit"
-          class="w-full px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-lg"
-        >
-          Create Profile
-        </button>
+        <div class="flex gap-3">
+          <button
+            type="button"
+            onclick={handleCancel}
+            class="flex-1 px-6 py-3 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-semibold text-lg"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="flex-1 px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-lg"
+          >
+            Create Profile
+          </button>
+        </div>
       </form>
 
       <div class="mt-8 pt-8 border-t border-gray-200 dark:border-gray-700">
