@@ -2,44 +2,58 @@ use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, TlsConfiguration, Tr
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BambuPrinterConfig {
-    pub ip: String,
-    pub serial: String,
+    pub name: String,
+    pub ip_address: String,
     pub access_code: String,
+    pub serial_number: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FilamentSyncCommand {
-    pub ams_id: u8,
-    pub tray_id: u8,
-    pub tray_color: String,
-    pub nozzle_temp_min: u16,
-    pub nozzle_temp_max: u16,
-    pub tray_type: String,
+    pub slot_id: u8,
+    pub brand: String,
+    pub material: String,
+    pub color: String,
+    pub nozzle_temp: u16,
+    pub bed_temp: u16,
 }
 
 pub struct BambuMqttClient {
-    runtime: Runtime,
+    #[allow(dead_code)]
+    client_id: String,
 }
 
 impl BambuMqttClient {
     pub fn new() -> Result<Self, String> {
-        let runtime = Runtime::new().map_err(|e| format!("Failed to create runtime: {}", e))?;
-        Ok(Self { runtime })
+        Ok(Self {
+            client_id: format!("spoolsync_{}", uuid::Uuid::new_v4()),
+        })
     }
 
     pub fn test_connection(&self, config: BambuPrinterConfig) -> Result<String, String> {
-        self.runtime.block_on(async {
-            let (_client, mut eventloop) = Self::create_client(&config).await?;
-            
-            match tokio::time::timeout(Duration::from_secs(3), eventloop.poll()).await {
-                Ok(Ok(_)) => Ok(format!("Successfully connected to printer at {}", config.ip)),
-                Ok(Err(e)) => Err(format!("Connection failed: {}", e)),
-                Err(_) => Err("Connection timeout".to_string()),
-            }
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Failed to create runtime: {}", e))?;
+
+        rt.block_on(async {
+            let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
+
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while let Ok(notification) = event_loop.poll().await {
+                    if let Event::Incoming(Packet::ConnAck(_)) = notification {
+                        client.disconnect().await.ok();
+                        return Ok(format!(
+                            "Successfully connected to printer '{}'",
+                            config.name
+                        ));
+                    }
+                }
+                Err("Connection timeout".to_string())
+            })
+            .await
+            .map_err(|_| "Connection timeout".to_string())?
         })
     }
 
@@ -48,75 +62,82 @@ impl BambuMqttClient {
         config: BambuPrinterConfig,
         command: FilamentSyncCommand,
     ) -> Result<String, String> {
-        self.runtime.block_on(async {
-            let (client, mut eventloop) = Self::create_client(&config).await?;
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Failed to create runtime: {}", e))?;
 
-            let topic = format!("device/{}/request", config.serial);
+        rt.block_on(async {
+            let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
+
+            tokio::spawn(async move {
+                while event_loop.poll().await.is_ok() {}
+            });
 
             let payload = serde_json::json!({
                 "print": {
+                    "sequence_id": "0",
                     "command": "ams_filament_setting",
-                    "ams_id": command.ams_id,
-                    "tray_id": command.tray_id,
-                    "tray_color": command.tray_color,
-                    "nozzle_temp_min": command.nozzle_temp_min,
-                    "nozzle_temp_max": command.nozzle_temp_max,
-                    "tray_type": command.tray_type
+                    "ams_id": 0,
+                    "tray_id": command.slot_id,
+                    "tray_info_idx": format!("{}", command.slot_id),
+                    "tray_color": command.color.replace('#', ""),
+                    "nozzle_temp_min": command.nozzle_temp,
+                    "nozzle_temp_max": command.nozzle_temp + 10,
+                    "tray_type": command.material,
                 }
             });
 
-            let payload_str = serde_json::to_string(&payload)
-                .map_err(|e| format!("Failed to serialize payload: {}", e))?;
-
+            let topic = format!("device/{}/request", config.serial_number);
             client
-                .publish(topic.clone(), QoS::AtLeastOnce, false, payload_str.as_bytes())
+                .publish(
+                    topic,
+                    QoS::AtLeastOnce,
+                    false,
+                    payload.to_string().as_bytes(),
+                )
                 .await
                 .map_err(|e| format!("Failed to publish: {}", e))?;
 
-            match tokio::time::timeout(Duration::from_secs(5), async {
-                loop {
-                    match eventloop.poll().await {
-                        Ok(Event::Incoming(Packet::PubAck(_))) => return Ok(()),
-                        Ok(_) => continue,
-                        Err(e) => return Err(format!("MQTT error: {}", e)),
-                    }
-                }
-            })
-            .await
-            {
-                Ok(Ok(())) => Ok(format!(
-                    "Successfully synced to AMS {} Tray {}",
-                    command.ams_id, command.tray_id
-                )),
-                Ok(Err(e)) => Err(e),
-                Err(_) => Err("Sync timeout".to_string()),
-            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            client.disconnect().await.ok();
+
+            Ok(format!(
+                "Synced {} {} to AMS slot {}",
+                command.brand, command.material, command.slot_id
+            ))
         })
     }
 
-    async fn create_client(
+    async fn create_mqtt_client(
+        &self,
         config: &BambuPrinterConfig,
     ) -> Result<(AsyncClient, rumqttc::EventLoop), String> {
-        let mut mqttoptions = MqttOptions::new("spoolsync-desktop", &config.ip, 8883);
-        mqttoptions.set_credentials("bblp", &config.access_code);
-        mqttoptions.set_keep_alive(Duration::from_secs(30));
+        let mut mqtt_options = MqttOptions::new(&self.client_id, &config.ip_address, 8883);
+        mqtt_options.set_keep_alive(Duration::from_secs(30));
+        mqtt_options.set_credentials("bblp", &config.access_code);
 
         let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
-        for cert in rustls_native_certs::load_native_certs()
-            .map_err(|e| format!("Failed to load native certs: {}", e))?
-        {
-            root_store.add(cert).ok();
+        
+        match rustls_native_certs::load_native_certs() {
+            Ok(certs) => {
+                for cert in certs {
+                    root_store.add(cert).ok();
+                }
+            }
+            Err(e) => {
+                return Err(format!("Failed to load native certs: {}", e));
+            }
         }
 
         let client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
-        let tls_config = TlsConfiguration::Rustls(Arc::new(client_config));
-        mqttoptions.set_transport(Transport::tls_with_config(tls_config));
+        mqtt_options.set_transport(Transport::Tls(TlsConfiguration::Rustls(
+            Arc::new(client_config),
+        )));
 
-        let (client, eventloop) = AsyncClient::new(mqttoptions, 10);
+        let (client, event_loop) = AsyncClient::new(mqtt_options, 10);
 
-        Ok((client, eventloop))
+        Ok((client, event_loop))
     }
 }

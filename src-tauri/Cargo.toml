@@ -16,6 +16,7 @@ paho-mqtt = "0.13"
 rumqttc = { version = "0.24", features = ["use-rustls"] }
 rustls-native-certs = "0.8"
 dirs = "5.0"
+uuid = { version = "1.11", features = ["v4"] }
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 urlencoding = "2.1"
