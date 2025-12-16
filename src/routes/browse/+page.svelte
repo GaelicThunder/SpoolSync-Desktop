@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Header from '$lib/components/Header.svelte';
-  import { spoolmanFilaments, spoolmanTotal, spoolmanLoading, spoolmanBrands, spoolmanMaterials, searchSpoolman, loadBrands, loadMaterials, type SpoolmanFilament } from '$lib/stores/spoolman';
+  import { spoolmanFilaments, spoolmanTotal, spoolmanLoading, spoolmanBrands, spoolmanMaterials, searchSpoolman, loadBrands, loadMaterials, debugFilament, type SpoolmanFilament } from '$lib/stores/spoolman';
   import { addFavorite } from '$lib/stores/filaments';
   import type { FilamentProfile } from '$lib/stores/filaments';
 
@@ -13,6 +13,7 @@
 
   let selectedFilament: SpoolmanFilament | null = null;
   let showModal = false;
+  let scrollContainer: HTMLDivElement;
 
   onMount(() => {
     loadBrands();
@@ -32,6 +33,8 @@
   }
 
   async function loadMore() {
+    if ($spoolmanLoading || $spoolmanFilaments.length >= $spoolmanTotal) return;
+    
     currentPage++;
     await searchSpoolman(
       searchQuery || undefined,
@@ -42,9 +45,19 @@
     );
   }
 
+  function handleScroll(e: Event) {
+    const target = e.target as HTMLDivElement;
+    const scrollPercentage = (target.scrollTop + target.clientHeight) / target.scrollHeight;
+    
+    if (scrollPercentage > 0.8) {
+      loadMore();
+    }
+  }
+
   function openModal(filament: SpoolmanFilament) {
     selectedFilament = filament;
     showModal = true;
+    debugFilament(filament);
   }
 
   function closeModal() {
@@ -58,8 +71,8 @@
         brand: filament.manufacturer || 'Unknown',
         material: filament.material || 'PLA',
         color: filament.color_hex ? '#' + filament.color_hex.replace('#', '') : '#888888',
-        nozzle_temp: filament.settings_extruder_temp || 220,
-        bed_temp: filament.settings_bed_temp || 60,
+        nozzle_temp: filament.extruder_temp || 220,
+        bed_temp: filament.bed_temp || 60,
         density: filament.density || 1.24,
         diameter: filament.diameter || 1.75,
         is_favorite: true,
@@ -78,7 +91,7 @@
 <div class="flex flex-col h-full">
   <Header title="Browse SpoolmanDB" subtitle="6900+ community filament profiles"></Header>
 
-  <div class="p-8 space-y-6">
+  <div class="p-8 space-y-6 flex-1 overflow-auto" bind:this={scrollContainer} onscroll={handleScroll}>
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <input
         type="text"
@@ -152,8 +165,8 @@
                   </p>
                 {/if}
                 <div class="flex gap-2 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                  {#if filament.settings_extruder_temp}
-                    <span>🌡️ {filament.settings_extruder_temp}°C</span>
+                  {#if filament.extruder_temp}
+                    <span>🌡️ {filament.extruder_temp}°C</span>
                   {/if}
                   {#if filament.diameter}
                     <span>• {filament.diameter}mm</span>
@@ -165,19 +178,12 @@
         {/each}
       </div>
 
-      <div class="text-center mt-8 space-y-4">
+      <div class="text-center mt-8 py-4">
         <p class="text-gray-500 dark:text-gray-400">
           Showing {$spoolmanFilaments.length} of {$spoolmanTotal} filaments
         </p>
-        
-        {#if $spoolmanFilaments.length < $spoolmanTotal}
-          <button
-            onclick={loadMore}
-            disabled={$spoolmanLoading}
-            class="px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium disabled:opacity-50"
-          >
-            {$spoolmanLoading ? 'Loading...' : 'Load More'}
-          </button>
+        {#if $spoolmanLoading && $spoolmanFilaments.length > 0}
+          <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mt-4"></div>
         {/if}
       </div>
     {/if}
@@ -218,13 +224,13 @@
         <div>
           <p class="text-sm text-gray-500 dark:text-gray-400">Nozzle Temperature</p>
           <p class="text-2xl font-bold text-gray-900 dark:text-white">
-            {selectedFilament.settings_extruder_temp || 'N/A'}°C
+            {selectedFilament.extruder_temp || 'N/A'}°C
           </p>
         </div>
         <div>
           <p class="text-sm text-gray-500 dark:text-gray-400">Bed Temperature</p>
           <p class="text-2xl font-bold text-gray-900 dark:text-white">
-            {selectedFilament.settings_bed_temp || 'N/A'}°C
+            {selectedFilament.bed_temp || 'N/A'}°C
           </p>
         </div>
         <div>
