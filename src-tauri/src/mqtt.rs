@@ -34,26 +34,78 @@ impl BambuMqttClient {
     }
 
     pub fn test_connection(&self, config: BambuPrinterConfig) -> Result<String, String> {
+        println!("\n🔌 MQTT CONNECTION TEST");
+        println!("═══════════════════════════════════════");
+        println!("Printer Name: {}", config.name);
+        println!("IP Address: {}", config.ip_address);
+        println!("Serial: {}", config.serial_number);
+        println!("Client ID: {}", self.client_id);
+        println!("═══════════════════════════════════════\n");
+
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| format!("Failed to create runtime: {}", e))?;
 
         rt.block_on(async {
-            let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
+            println!("📡 Creating MQTT client...");
+            let (client, mut event_loop) = match self.create_mqtt_client(&config).await {
+                Ok(result) => {
+                    println!("✅ MQTT client created successfully");
+                    result
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to create MQTT client: {}", e);
+                    return Err(e);
+                }
+            };
 
-            tokio::time::timeout(Duration::from_secs(5), async {
+            println!("⏳ Waiting for connection events (5s timeout)...");
+            let result = tokio::time::timeout(Duration::from_secs(5), async {
+                let mut event_count = 0;
                 while let Ok(notification) = event_loop.poll().await {
-                    if let Event::Incoming(Packet::ConnAck(_)) = notification {
-                        client.disconnect().await.ok();
-                        return Ok(format!(
-                            "Successfully connected to printer '{}'",
-                            config.name
-                        ));
+                    event_count += 1;
+                    println!("📨 Event #{}: {:?}", event_count, notification);
+                    
+                    match notification {
+                        Event::Incoming(Packet::ConnAck(connack)) => {
+                            println!("✅ ConnAck received: {:?}", connack);
+                            client.disconnect().await.ok();
+                            return Ok(format!(
+                                "Successfully connected to printer '{}'",
+                                config.name
+                            ));
+                        }
+                        Event::Incoming(packet) => {
+                            println!("📦 Incoming packet: {:?}", packet);
+                        }
+                        Event::Outgoing(packet) => {
+                            println!("📤 Outgoing packet: {:?}", packet);
+                        }
                     }
                 }
-                Err("Connection timeout".to_string())
+                Err("Event loop ended without ConnAck".to_string())
             })
-            .await
-            .map_err(|_| "Connection timeout".to_string())?
+            .await;
+
+            match result {
+                Ok(Ok(success)) => {
+                    println!("\n✅ Connection test successful!");
+                    Ok(success)
+                }
+                Ok(Err(e)) => {
+                    eprintln!("\n❌ Connection failed: {}", e);
+                    Err(e)
+                }
+                Err(_) => {
+                    eprintln!("\n⏱️ Connection timeout after 5 seconds");
+                    eprintln!("Possible issues:");
+                    eprintln!("  - Printer IP address incorrect or unreachable");
+                    eprintln!("  - Access code is wrong");
+                    eprintln!("  - Printer is offline or MQTT is disabled");
+                    eprintln!("  - Firewall blocking port 8883");
+                    eprintln!("  - TLS certificate issues");
+                    Err("Connection timeout".to_string())
+                }
+            }
         })
     }
 
@@ -62,6 +114,15 @@ impl BambuMqttClient {
         config: BambuPrinterConfig,
         command: FilamentSyncCommand,
     ) -> Result<String, String> {
+        println!("\n🧵 MQTT FILAMENT SYNC");
+        println!("═══════════════════════════════════════");
+        println!("Printer: {} ({})", config.name, config.ip_address);
+        println!("Slot: {}", command.slot_id);
+        println!("Brand: {}", command.brand);
+        println!("Material: {}", command.material);
+        println!("Color: {}", command.color);
+        println!("═══════════════════════════════════════\n");
+
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| format!("Failed to create runtime: {}", e))?;
 
@@ -69,7 +130,9 @@ impl BambuMqttClient {
             let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
 
             tokio::spawn(async move {
-                while event_loop.poll().await.is_ok() {}
+                while let Ok(event) = event_loop.poll().await {
+                    println!("📨 MQTT Event: {:?}", event);
+                }
             });
 
             let payload = serde_json::json!({
@@ -87,6 +150,9 @@ impl BambuMqttClient {
             });
 
             let topic = format!("device/{}/request", config.serial_number);
+            println!("📤 Publishing to topic: {}", topic);
+            println!("📦 Payload: {}", payload);
+
             client
                 .publish(
                     topic,
@@ -97,6 +163,7 @@ impl BambuMqttClient {
                 .await
                 .map_err(|e| format!("Failed to publish: {}", e))?;
 
+            println!("✅ Message published, waiting 1s...");
             tokio::time::sleep(Duration::from_secs(1)).await;
             client.disconnect().await.ok();
 
@@ -111,20 +178,34 @@ impl BambuMqttClient {
         &self,
         config: &BambuPrinterConfig,
     ) -> Result<(AsyncClient, rumqttc::EventLoop), String> {
+        println!("🔧 Configuring MQTT options...");
+        println!("   Host: {}:8883", config.ip_address);
+        println!("   Username: bblp");
+        println!("   Client ID: {}", self.client_id);
+
         let mut mqtt_options = MqttOptions::new(&self.client_id, &config.ip_address, 8883);
         mqtt_options.set_keep_alive(Duration::from_secs(30));
         mqtt_options.set_credentials("bblp", &config.access_code);
 
+        println!("🔐 Loading TLS certificates...");
         let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
         
         let cert_result = rustls_native_certs::load_native_certs();
         
+        let mut loaded_certs = 0;
         for cert in cert_result.certs {
-            root_store.add(cert).ok();
+            if root_store.add(cert).is_ok() {
+                loaded_certs += 1;
+            }
         }
         
+        println!("   ✅ Loaded {} system certificates", loaded_certs);
+        
         if !cert_result.errors.is_empty() {
-            eprintln!("Warning: Some certificates failed to load: {:?}", cert_result.errors);
+            eprintln!("   ⚠️ Certificate load warnings: {} errors", cert_result.errors.len());
+            for err in &cert_result.errors {
+                eprintln!("      - {:?}", err);
+            }
         }
 
         let client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
@@ -135,7 +216,9 @@ impl BambuMqttClient {
             Arc::new(client_config),
         )));
 
+        println!("📡 Creating async MQTT client...");
         let (client, event_loop) = AsyncClient::new(mqtt_options, 10);
+        println!("✅ Client and event loop created\n");
 
         Ok((client, event_loop))
     }
