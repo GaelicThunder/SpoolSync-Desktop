@@ -3,10 +3,12 @@
 mod db;
 mod mqtt;
 mod spoolman;
+mod filamentcolors;
 
 use db::{Database, FilamentProfile, Settings};
 use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand};
 use spoolman::{SpoolmanClient, SpoolmanFilament, SpoolmanResponse};
+use filamentcolors::{FilamentColorsClient, FilamentColorsResponse};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -14,6 +16,7 @@ struct AppState {
     db: Mutex<Database>,
     mqtt: Mutex<BambuMqttClient>,
     spoolman: Arc<SpoolmanClient>,
+    filament_colors: Arc<FilamentColorsClient>,
 }
 
 #[tauri::command]
@@ -140,9 +143,21 @@ async fn sync_spoolman_db(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_filament_swatches(
+    state: State<'_, AppState>,
+    manufacturer: Option<String>,
+    material_type: Option<String>,
+    limit: Option<i32>,
+    offset: Option<i32>,
+) -> Result<FilamentColorsResponse, String> {
+    let client = Arc::clone(&state.filament_colors);
+    client.get_swatches(manufacturer, material_type, limit, offset).await
+}
+
+#[tauri::command]
 fn debug_filament(filament: SpoolmanFilament) {
     println!("\n🔍 DEBUG FILAMENT DATA:");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("═══════════════════════════════════════=");
     println!("ID: {}", filament.id);
     println!("Manufacturer: {}", filament.manufacturer);
     println!("Name: {}", filament.name);
@@ -156,16 +171,16 @@ fn debug_filament(filament: SpoolmanFilament) {
     println!("Extruder Temp Range: {:?}", filament.extruder_temp_range);
     println!("Bed Temp: {:?}°C", filament.bed_temp);
     println!("Bed Temp Range: {:?}", filament.bed_temp_range);
-    println!("Finish: {:?}", filament.finish);
     println!("Translucent: {}", filament.translucent);
     println!("Glow: {}", filament.glow);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    println!("═══════════════════════════════════════\n");
 }
 
 fn main() {
     let db = Database::new().expect("Failed to initialize database");
     let mqtt = BambuMqttClient::new().expect("Failed to initialize MQTT client");
     let spoolman = Arc::new(SpoolmanClient::new());
+    let filament_colors = Arc::new(FilamentColorsClient::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -173,6 +188,7 @@ fn main() {
             db: Mutex::new(db),
             mqtt: Mutex::new(mqtt),
             spoolman,
+            filament_colors,
         })
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -193,6 +209,7 @@ fn main() {
             search_spoolman,
             get_spoolman_brands,
             sync_spoolman_db,
+            get_filament_swatches,
             debug_filament,
         ])
         .run(tauri::generate_context!())
