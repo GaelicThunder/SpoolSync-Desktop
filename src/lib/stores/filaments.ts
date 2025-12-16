@@ -39,6 +39,24 @@ export async function loadCustomProfiles() {
   }
 }
 
+export async function getFavorites(): Promise<FilamentProfile[]> {
+  try {
+    return await invoke<FilamentProfile[]>('get_favorites');
+  } catch (error) {
+    console.error('Failed to get favorites:', error);
+    return [];
+  }
+}
+
+export async function getCustomProfiles(): Promise<FilamentProfile[]> {
+  try {
+    return await invoke<FilamentProfile[]>('get_custom_profiles');
+  } catch (error) {
+    console.error('Failed to get custom profiles:', error);
+    return [];
+  }
+}
+
 export async function addFavorite(profile: FilamentProfile): Promise<number> {
   console.log('Adding favorite:', profile);
   const id = await invoke<number>('add_favorite', { profile });
