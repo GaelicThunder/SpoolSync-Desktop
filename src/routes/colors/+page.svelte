@@ -42,7 +42,7 @@
   let totalCount = 0;
   let loading = false;
   let currentOffset = 0;
-  const limit = 50;
+  const limit = 100;
 
   let selectedManufacturer = '';
   let selectedMaterial = '';
@@ -55,7 +55,6 @@
 
   onMount(async () => {
     await loadSwatches();
-    extractFilters();
   });
 
   function extractFilters() {
@@ -97,10 +96,9 @@
       totalCount = response.count;
       currentOffset += response.results.length;
       
-      if (reset) extractFilters();
+      extractFilters();
     } catch (error) {
       console.error('Failed to load swatches:', error);
-      alert('Failed to load filament swatches: ' + error);
     } finally {
       loading = false;
     }
@@ -114,7 +112,7 @@
     const target = e.target as HTMLDivElement;
     const scrollPercentage = (target.scrollTop + target.clientHeight) / target.scrollHeight;
     
-    if (scrollPercentage > 0.8 && swatches.length < totalCount) {
+    if (scrollPercentage > 0.8 && swatches.length < totalCount && !loading) {
       loadSwatches();
     }
   }
@@ -200,42 +198,26 @@
         </p>
       </div>
     {:else}
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
         {#each swatches as swatch (swatch.id)}
           <button
             onclick={() => openModal(swatch)}
-            class="group bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-xl transition-all overflow-hidden"
+            class="group bg-white dark:bg-gray-800 rounded-lg shadow-md hover:shadow-xl transition-all p-3"
           >
-            {#if swatch.image_front}
-              <div class="w-full aspect-square bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                <img
-                  src={swatch.image_front}
-                  alt={swatch.color_name}
-                  class="w-full h-full object-cover group-hover:scale-110 transition-transform"
-                  loading="lazy"
-                />
-              </div>
-            {:else}
-              <div
-                class="w-full aspect-square"
-                style="background-color: {swatch.hex_color.startsWith('#') ? swatch.hex_color : '#' + swatch.hex_color}"
-              ></div>
-            {/if}
+            <div
+              class="w-full aspect-square rounded-lg mb-2 border-2 border-gray-200 dark:border-gray-700 group-hover:border-primary transition-colors"
+              style="background-color: {swatch.hex_color.startsWith('#') ? swatch.hex_color : '#' + swatch.hex_color}"
+            ></div>
             
-            <div class="p-4">
-              <h4 class="font-semibold text-gray-900 dark:text-white text-sm mb-1">
-                {swatch.color_name}
-              </h4>
-              <p class="text-xs text-gray-600 dark:text-gray-400">
-                {swatch.manufacturer.name}
-              </p>
-              <p class="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                {swatch.material.name}
-              </p>
-              <p class="text-xs text-gray-400 dark:text-gray-600 mt-1 font-mono">
-                {swatch.hex_color.startsWith('#') ? swatch.hex_color : '#' + swatch.hex_color}
-              </p>
-            </div>
+            <h4 class="font-semibold text-gray-900 dark:text-white text-xs mb-1 truncate" title={swatch.color_name}>
+              {swatch.color_name}
+            </h4>
+            <p class="text-xs text-gray-600 dark:text-gray-400 truncate" title={swatch.manufacturer.name}>
+              {swatch.manufacturer.name}
+            </p>
+            <p class="text-xs text-gray-500 dark:text-gray-500 mt-1 truncate">
+              {swatch.material.name}
+            </p>
           </button>
         {/each}
       </div>
@@ -255,11 +237,16 @@
 {#if showModal && selectedSwatch}
   <div
     class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+    role="dialog"
+    aria-modal="true"
     onclick={closeModal}
+    onkeydown={(e) => e.key === 'Escape' && closeModal()}
   >
     <div
       class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-4xl w-full p-8 max-h-[90vh] overflow-y-auto"
+      role="document"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div>
@@ -268,20 +255,21 @@
               src={selectedSwatch.image_front}
               alt={selectedSwatch.color_name}
               class="w-full rounded-lg shadow-lg"
+              loading="lazy"
             />
           {:else}
             <div
-              class="w-full aspect-square rounded-lg"
+              class="w-full aspect-square rounded-lg shadow-lg"
               style="background-color: {selectedSwatch.hex_color.startsWith('#') ? selectedSwatch.hex_color : '#' + selectedSwatch.hex_color}"
             ></div>
           {/if}
           
           <div class="grid grid-cols-2 gap-4 mt-4">
             {#if selectedSwatch.image_back}
-              <img src={selectedSwatch.image_back} alt="Back" class="w-full rounded-lg shadow-md" />
+              <img src={selectedSwatch.image_back} alt="Back view" class="w-full rounded-lg shadow-md" loading="lazy" />
             {/if}
             {#if selectedSwatch.image_other}
-              <img src={selectedSwatch.image_other} alt="Other" class="w-full rounded-lg shadow-md" />
+              <img src={selectedSwatch.image_other} alt="Additional view" class="w-full rounded-lg shadow-md" loading="lazy" />
             {/if}
           </div>
         </div>
@@ -297,7 +285,7 @@
           <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg mb-6">
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">Hex Color</p>
             <p class="text-2xl font-mono font-bold text-gray-900 dark:text-white">
-              {selectedSwatch.hex_color.startsWith('#') ? selectedSwatch.hex_color : '#' + selectedSwatch.hex_color}
+              {selectedSwatch.hex_color.startsWith('#') ? selectedSwatch.hex_color.toUpperCase() : '#' + selectedSwatch.hex_color.toUpperCase()}
             </p>
           </div>
           
@@ -318,7 +306,7 @@
                 rel="noopener noreferrer"
                 class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
               >
-                🌐 Manufacturer Site
+                🌐 Manufacturer
               </a>
             {/if}
             {#if selectedSwatch.manufacturer_purchase_link}
