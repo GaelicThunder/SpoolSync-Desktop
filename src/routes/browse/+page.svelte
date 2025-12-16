@@ -14,6 +14,7 @@
   let selectedFilament: SpoolmanFilament | null = null;
   let showModal = false;
   let scrollContainer: HTMLDivElement;
+  let copyMessage = '';
 
   onMount(() => {
     loadBrands();
@@ -63,6 +64,22 @@
   function closeModal() {
     showModal = false;
     selectedFilament = null;
+    copyMessage = '';
+  }
+
+  function getFilamentLink(id: string): string {
+    return `https://donkie.github.io/SpoolmanDB/?id=${id}`;
+  }
+
+  async function copyLink(id: string) {
+    const link = getFilamentLink(id);
+    try {
+      await navigator.clipboard.writeText(link);
+      copyMessage = '✅ Link copied!';
+      setTimeout(() => copyMessage = '', 2000);
+    } catch (err) {
+      copyMessage = '❌ Failed to copy';
+    }
   }
 
   async function handleAddToFavorites(filament: SpoolmanFilament) {
@@ -196,10 +213,10 @@
     onclick={closeModal}
   >
     <div
-      class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full p-8"
+      class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-3xl w-full p-8 max-h-[90vh] overflow-y-auto"
       onclick={(e) => e.stopPropagation()}
     >
-      <div class="flex items-start gap-6">
+      <div class="flex items-start gap-6 pb-6 border-b border-gray-200 dark:border-gray-700">
         <div
           class="w-24 h-24 rounded-lg flex-shrink-0 border-2 border-gray-300 dark:border-gray-600"
           style="background-color: {selectedFilament.color_hex ? '#' + selectedFilament.color_hex.replace('#', '') : '#888888'}"
@@ -213,57 +230,100 @@
             {selectedFilament.material || 'Unknown'}
           </p>
           {#if selectedFilament.name}
-            <p class="text-gray-500 dark:text-gray-500 mt-2">
+            <p class="text-gray-500 dark:text-gray-500 mt-2 text-lg">
               {selectedFilament.name}
             </p>
+          {/if}
+          <div class="flex gap-2 mt-3">
+            <button
+              onclick={() => copyLink(selectedFilament.id)}
+              class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+            >
+              🔗 Copy Link
+            </button>
+            <a
+              href={getFilamentLink(selectedFilament.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+            >
+              🌐 View on SpoolmanDB
+            </a>
+          </div>
+          {#if copyMessage}
+            <p class="text-sm text-green-600 dark:text-green-400 mt-2">{copyMessage}</p>
           {/if}
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-6 mt-6">
-        <div>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Nozzle Temperature</p>
+        <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Nozzle Temperature</p>
           <p class="text-2xl font-bold text-gray-900 dark:text-white">
-            {selectedFilament.extruder_temp || 'N/A'}°C
+            {selectedFilament.extruder_temp || 'N/A'}{selectedFilament.extruder_temp ? '°C' : ''}
           </p>
         </div>
-        <div>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Bed Temperature</p>
+        <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Bed Temperature</p>
           <p class="text-2xl font-bold text-gray-900 dark:text-white">
-            {selectedFilament.bed_temp || 'N/A'}°C
+            {selectedFilament.bed_temp || 'N/A'}{selectedFilament.bed_temp ? '°C' : ''}
           </p>
         </div>
-        <div>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Density</p>
+        <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Density</p>
           <p class="text-2xl font-bold text-gray-900 dark:text-white">
-            {selectedFilament.density || 'N/A'} g/cm³
+            {selectedFilament.density} g/cm³
           </p>
         </div>
-        <div>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Diameter</p>
+        <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Diameter</p>
           <p class="text-2xl font-bold text-gray-900 dark:text-white">
-            {selectedFilament.diameter || 'N/A'} mm
+            {selectedFilament.diameter} mm
           </p>
         </div>
         {#if selectedFilament.weight}
-          <div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Net Weight</p>
+          <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Net Weight</p>
             <p class="text-2xl font-bold text-gray-900 dark:text-white">
               {selectedFilament.weight}g
             </p>
           </div>
         {/if}
         {#if selectedFilament.spool_weight}
-          <div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Spool Weight</p>
+          <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Spool Weight</p>
             <p class="text-2xl font-bold text-gray-900 dark:text-white">
               {selectedFilament.spool_weight}g
             </p>
           </div>
         {/if}
+        {#if selectedFilament.color_hex}
+          <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Color Hex</p>
+            <p class="text-xl font-mono font-bold text-gray-900 dark:text-white">
+              #{selectedFilament.color_hex.replace('#', '').toUpperCase()}
+            </p>
+          </div>
+        {/if}
+        {#if selectedFilament.translucent}
+          <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Properties</p>
+            <p class="text-lg font-semibold text-gray-900 dark:text-white">
+              ✨ Translucent
+            </p>
+          </div>
+        {/if}
+        {#if selectedFilament.glow}
+          <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Properties</p>
+            <p class="text-lg font-semibold text-gray-900 dark:text-white">
+              🌟 Glow in Dark
+            </p>
+          </div>
+        {/if}
       </div>
 
-      <div class="flex gap-3 mt-8">
+      <div class="flex gap-3 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
         <button
           onclick={closeModal}
           class="flex-1 px-6 py-3 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-semibold"
