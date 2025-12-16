@@ -204,21 +204,30 @@ impl BambuMqttClient {
             client.subscribe(&report_topic, QoS::AtMostOnce).await
                 .map_err(|e| format!("Subscribe failed: {}", e))?;
 
-            println!("⏳ Waiting for AMS status message (10s timeout)...\n");
+            println!("⏳ Waiting for AMS status message (30s timeout)...\n");
             
-            let result = tokio::time::timeout(Duration::from_secs(10), async {
+            let result = tokio::time::timeout(Duration::from_secs(30), async {
+                let mut message_count = 0;
                 loop {
                     match event_loop.poll().await {
                         Ok(Event::Incoming(Packet::Publish(publish))) => {
+                            message_count += 1;
                             if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
+                                println!("\n📨 ========== MESSAGE #{} ==========", message_count);
+                                println!("{}", payload_str);
+                                println!("========== END MESSAGE #{} ==========\n", message_count);
+                                
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
                                     if let Some(print_obj) = json.get("print") {
                                         if let Some(ams_obj) = print_obj.get("ams") {
+                                            println!("✅ Found 'ams' object");
                                             if let Some(ams_array) = ams_obj.get("ams").and_then(|a| a.as_array()) {
+                                                println!("✅ Found 'ams.ams' array with {} units", ams_array.len());
                                                 let mut statuses = Vec::new();
                                                 
                                                 for (ams_idx, ams_unit) in ams_array.iter().enumerate() {
                                                     if let Some(tray_array) = ams_unit.get("tray").and_then(|t| t.as_array()) {
+                                                        println!("📦 AMS {}: {} trays", ams_idx, tray_array.len());
                                                         let mut trays = Vec::new();
                                                         
                                                         for (tray_idx, tray_obj) in tray_array.iter().enumerate() {
@@ -242,6 +251,8 @@ impl BambuMqttClient {
                                                                 .unwrap_or(0);
                                                             
                                                             if !tray_type.is_empty() {
+                                                                println!("   Slot {}: {} (#{}) {}°C-{}°C", 
+                                                                    tray_idx, tray_type, tray_color, nozzle_temp_min, nozzle_temp_max);
                                                                 trays.push(AMSTrayInfo {
                                                                     tray_id: tray_idx as u8,
                                                                     tray_type,
@@ -262,15 +273,7 @@ impl BambuMqttClient {
                                                 }
                                                 
                                                 if !statuses.is_empty() {
-                                                    println!("✅ Retrieved {} AMS unit(s)", statuses.len());
-                                                    for ams in &statuses {
-                                                        println!("   AMS {}: {} trays", ams.ams_id, ams.trays.len());
-                                                        for tray in &ams.trays {
-                                                            println!("      Slot {}: {} (#{}) {}°C-{}°C", 
-                                                                tray.tray_id, tray.tray_type, tray.tray_color, 
-                                                                tray.nozzle_temp_min, tray.nozzle_temp_max);
-                                                        }
-                                                    }
+                                                    println!("\n✅ Retrieved {} AMS unit(s)\n", statuses.len());
                                                     client.disconnect().await.ok();
                                                     return Ok(statuses);
                                                 }
@@ -282,6 +285,7 @@ impl BambuMqttClient {
                         }
                         Ok(_) => {},
                         Err(e) => {
+                            eprintln!("\n❌ Event loop error: {:?}", e);
                             return Err(format!("Connection error: {:?}", e));
                         }
                     }
@@ -294,7 +298,7 @@ impl BambuMqttClient {
                 Ok(Ok(statuses)) => Ok(statuses),
                 Ok(Err(e)) => Err(e),
                 Err(_) => {
-                    println!("⚠️ No AMS status received within 10s");
+                    println!("\n⚠️ No AMS status received within 30s");
                     Ok(vec![])
                 }
             }
