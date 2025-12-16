@@ -16,7 +16,7 @@ pub struct SpoolmanFilament {
     #[serde(default)]
     pub weight: Option<f64>,
     #[serde(default)]
-    pub spool_weight: Option<u32>,
+    pub spool_weight: Option<f64>,
     #[serde(default)]
     pub spool_type: Option<String>,
     #[serde(rename = "extruder_temp", default)]
@@ -82,7 +82,7 @@ impl SpoolmanClient {
             .json()
             .await
             .map_err(|e| {
-                eprintln!("JSON parse error details: {:?}", e);
+                eprintln!("JSON parse error: {:?}", e);
                 format!("Failed to parse JSON: {}", e)
             })?;
 
@@ -132,7 +132,7 @@ impl SpoolmanClient {
             .json()
             .await
             .map_err(|e| {
-                eprintln!("JSON parse error details: {:?}", e);
+                eprintln!("JSON parse error: {:?}", e);
                 format!("Failed to parse JSON: {}", e)
             })?;
 
@@ -144,7 +144,7 @@ impl SpoolmanClient {
             .collect();
 
         brands.sort();
-        println!("Loaded {} unique brands", brands.len());
+        println!("Loaded {} unique brands from SpoolmanDB", brands.len());
 
         Ok(brands)
     }
@@ -164,7 +164,7 @@ impl SpoolmanClient {
             .json()
             .await
             .map_err(|e| {
-                eprintln!("JSON parse error details: {:?}", e);
+                eprintln!("JSON parse error: {:?}", e);
                 format!("Failed to parse JSON: {}", e)
             })?;
 
@@ -176,7 +176,7 @@ impl SpoolmanClient {
         let mut materials: Vec<String> = materials_set.into_iter().collect();
         materials.sort();
 
-        println!("Loaded {} unique materials from SpoolmanDB", materials.len());
+        println!("✅ Loaded {} unique materials from SpoolmanDB", materials.len());
 
         Ok(materials)
     }
