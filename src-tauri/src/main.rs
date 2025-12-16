@@ -34,6 +34,18 @@ fn get_custom_profiles(state: State<AppState>) -> Result<Vec<FilamentProfile>, S
 }
 
 #[tauri::command]
+fn get_brands(state: State<AppState>) -> Result<Vec<String>, String> {
+    let db = state.db.lock().unwrap();
+    db.get_brands().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_materials(state: State<AppState>) -> Result<Vec<String>, String> {
+    let db = state.db.lock().unwrap();
+    db.get_materials().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn add_favorite(state: State<AppState>, profile: FilamentProfile) -> Result<i64, String> {
     let db = state.db.lock().unwrap();
     db.add_favorite(profile).map_err(|e| e.to_string())
@@ -131,6 +143,8 @@ fn main() {
             greet,
             get_favorites,
             get_custom_profiles,
+            get_brands,
+            get_materials,
             add_favorite,
             remove_favorite,
             create_custom_profile,
