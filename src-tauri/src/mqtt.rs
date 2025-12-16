@@ -21,6 +21,21 @@ pub struct FilamentSyncCommand {
     pub bed_temp: u16,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AMSTrayInfo {
+    pub tray_id: u8,
+    pub tray_type: String,
+    pub tray_color: String,
+    pub nozzle_temp_min: u16,
+    pub nozzle_temp_max: u16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AMSStatus {
+    pub ams_id: u8,
+    pub trays: Vec<AMSTrayInfo>,
+}
+
 #[derive(Debug)]
 struct NoCertVerification;
 
@@ -169,6 +184,95 @@ impl BambuMqttClient {
                     eprintln!("  4. Firewall blocking port 8883");
                     Err("Connection timeout - no response from printer".to_string())
                 }
+            }
+        })
+    }
+
+    pub fn get_ams_status(&self, config: BambuPrinterConfig) -> Result<Vec<AMSStatus>, String> {
+        println!("\n📊 GET AMS STATUS");
+        println!("═══════════════════════════════════════");
+        println!("Printer: {} ({})", config.name, config.ip_address);
+        println!("═══════════════════════════════════════\n");
+
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Failed to create runtime: {}", e))?;
+
+        rt.block_on(async {
+            let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
+            
+            let report_topic = format!("device/{}/report", config.serial_number);
+            client.subscribe(&report_topic, QoS::AtMostOnce).await
+                .map_err(|e| format!("Subscribe failed: {}", e))?;
+
+            let ams_status = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+            let ams_status_clone = Arc::clone(&ams_status);
+
+            let event_task = tokio::spawn(async move {
+                while let Ok(event) = event_loop.poll().await {
+                    if let Event::Incoming(Packet::Publish(publish)) = event {
+                        if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                                if let Some(ams_array) = json.get("print").and_then(|p| p.get("ams")).and_then(|a| a.as_array()) {
+                                    let mut statuses = Vec::new();
+                                    
+                                    for (ams_idx, ams_obj) in ams_array.iter().enumerate() {
+                                        if let Some(tray_array) = ams_obj.get("tray").and_then(|t| t.as_array()) {
+                                            let mut trays = Vec::new();
+                                            
+                                            for (tray_idx, tray_obj) in tray_array.iter().enumerate() {
+                                                let tray_type = tray_obj.get("tray_type").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                                                let tray_color = tray_obj.get("tray_color").and_then(|c| c.as_str()).unwrap_or("000000").to_string();
+                                                let nozzle_temp_min = tray_obj.get("nozzle_temp_min").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
+                                                let nozzle_temp_max = tray_obj.get("nozzle_temp_max").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
+                                                
+                                                if !tray_type.is_empty() {
+                                                    trays.push(AMSTrayInfo {
+                                                        tray_id: tray_idx as u8,
+                                                        tray_type,
+                                                        tray_color,
+                                                        nozzle_temp_min,
+                                                        nozzle_temp_max,
+                                                    });
+                                                }
+                                            }
+                                            
+                                            if !trays.is_empty() {
+                                                statuses.push(AMSStatus {
+                                                    ams_id: ams_idx as u8,
+                                                    trays,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    
+                                    if !statuses.is_empty() {
+                                        let mut locked = ams_status_clone.lock().await;
+                                        *locked = statuses;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            println!("⏳ Waiting for AMS status (5s timeout)...");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            
+            event_task.abort();
+            client.disconnect().await.ok();
+
+            let result = ams_status.lock().await.clone();
+            
+            if result.is_empty() {
+                println!("⚠️ No AMS status received");
+                Ok(vec![])
+            } else {
+                println!("✅ Retrieved status for {} AMS unit(s)", result.len());
+                for ams in &result {
+                    println!("   AMS {}: {} trays loaded", ams.ams_id, ams.trays.len());
+                }
+                Ok(result)
             }
         })
     }

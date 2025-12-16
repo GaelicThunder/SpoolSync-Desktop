@@ -6,7 +6,7 @@ mod spoolman;
 mod filamentcolors;
 
 use db::{Database, FilamentProfile, Settings};
-use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand};
+use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand, AMSStatus};
 use spoolman::{SpoolmanClient, SpoolmanFilament, SpoolmanResponse};
 use filamentcolors::{FilamentColorsClient, FilamentColorsResponse};
 use std::sync::{Arc, Mutex};
@@ -106,6 +106,15 @@ fn test_printer_connection(
 }
 
 #[tauri::command]
+fn get_ams_status(
+    state: State<AppState>,
+    config: BambuPrinterConfig,
+) -> Result<Vec<AMSStatus>, String> {
+    let mqtt = state.mqtt.lock().unwrap();
+    mqtt.get_ams_status(config)
+}
+
+#[tauri::command]
 fn sync_to_ams(
     state: State<AppState>,
     config: BambuPrinterConfig,
@@ -157,7 +166,7 @@ async fn get_filament_swatches(
 #[tauri::command]
 fn debug_filament(filament: SpoolmanFilament) {
     println!("\n🔍 DEBUG FILAMENT DATA:");
-    println!("═══════════════════════════════════════=");
+    println!("════════════════════════════════════════");
     println!("ID: {}", filament.id);
     println!("Manufacturer: {}", filament.manufacturer);
     println!("Name: {}", filament.name);
@@ -173,7 +182,7 @@ fn debug_filament(filament: SpoolmanFilament) {
     println!("Bed Temp Range: {:?}", filament.bed_temp_range);
     println!("Translucent: {}", filament.translucent);
     println!("Glow: {}", filament.glow);
-    println!("═══════════════════════════════════════\n");
+    println!("════════════════════════════════════════\n");
 }
 
 fn main() {
@@ -205,6 +214,7 @@ fn main() {
             get_settings,
             save_settings,
             test_printer_connection,
+            get_ams_status,
             sync_to_ams,
             search_spoolman,
             get_spoolman_brands,
