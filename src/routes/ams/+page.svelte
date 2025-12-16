@@ -5,9 +5,23 @@
   import { getFavorites, getCustomProfiles, type FilamentProfile } from '$lib/stores/filaments';
   import { getSettings, saveSettings, type Settings } from '$lib/stores/settings';
 
+  interface AMSTrayInfo {
+    tray_id: number;
+    tray_type: string;
+    tray_color: string;
+    nozzle_temp_min: number;
+    nozzle_temp_max: number;
+  }
+
+  interface AMSStatus {
+    ams_id: number;
+    trays: AMSTrayInfo[];
+  }
+
   interface AMSSlot {
     slot_id: number;
     filament?: FilamentProfile;
+    loaded?: AMSTrayInfo;
   }
 
   let settings: Settings | null = null;
@@ -16,9 +30,11 @@
   let customProfiles: FilamentProfile[] = [];
   let allProfiles: FilamentProfile[] = [];
 
+  let refreshing = false;
   let testingConnection = false;
   let syncingSlot: number | null = null;
   let connectionStatus = '';
+  let refreshStatus = '';
 
   onMount(async () => {
     settings = await getSettings();
@@ -26,6 +42,43 @@
     customProfiles = await getCustomProfiles();
     allProfiles = [...favorites, ...customProfiles];
   });
+
+  async function refreshAMSStatus() {
+    if (!settings?.printer_ip || !settings?.printer_access_code || !settings?.printer_serial) {
+      refreshStatus = '❌ Configure printer in Settings first';
+      return;
+    }
+
+    refreshing = true;
+    refreshStatus = '🔄 Refreshing AMS status...';
+
+    try {
+      const result = await invoke<AMSStatus[]>('get_ams_status', {
+        config: {
+          name: settings.printer_name || 'Bambu Printer',
+          ip_address: settings.printer_ip,
+          access_code: settings.printer_access_code,
+          serial_number: settings.printer_serial,
+        },
+      });
+
+      if (result.length > 0 && result[0].trays.length > 0) {
+        for (const tray of result[0].trays) {
+          if (tray.tray_id < slots.length) {
+            slots[tray.tray_id].loaded = tray;
+          }
+        }
+        slots = [...slots];
+        refreshStatus = `✅ Loaded ${result[0].trays.length} filaments from AMS`;
+      } else {
+        refreshStatus = '⚠️ No filaments loaded in AMS';
+      }
+    } catch (error) {
+      refreshStatus = '❌ Failed: ' + error;
+    } finally {
+      refreshing = false;
+    }
+  }
 
   async function testConnection() {
     if (!settings?.printer_ip || !settings?.printer_access_code || !settings?.printer_serial) {
@@ -85,6 +138,7 @@
         },
       });
       alert('✅ ' + result);
+      setTimeout(refreshAMSStatus, 1000);
     } catch (error) {
       alert('❌ Failed to sync: ' + error);
     } finally {
@@ -133,17 +187,33 @@
             </div>
           </div>
           
-          <button
-            onclick={testConnection}
-            disabled={testingConnection}
-            class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {testingConnection ? '🔌 Testing...' : '🔌 Test Connection'}
-          </button>
+          <div class="flex gap-3">
+            <button
+              onclick={testConnection}
+              disabled={testingConnection}
+              class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {testingConnection ? '🔌 Testing...' : '🔌 Test Connection'}
+            </button>
+
+            <button
+              onclick={refreshAMSStatus}
+              disabled={refreshing}
+              class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {refreshing ? '🔄 Refreshing...' : '🔄 Refresh AMS Status'}
+            </button>
+          </div>
           
           {#if connectionStatus}
             <p class="text-sm {connectionStatus.startsWith('✅') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}">
               {connectionStatus}
+            </p>
+          {/if}
+
+          {#if refreshStatus}
+            <p class="text-sm {refreshStatus.startsWith('✅') ? 'text-green-600 dark:text-green-400' : refreshStatus.startsWith('⚠️') ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}">
+              {refreshStatus}
             </p>
           {/if}
         </div>
@@ -170,11 +240,28 @@
               {/if}
             </div>
 
+            {#if slot.loaded}
+              <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-3">
+                <p class="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">📊 Currently Loaded:</p>
+                <div class="flex items-center gap-3">
+                  <div
+                    class="w-10 h-10 rounded-lg border-2 border-gray-300 dark:border-gray-600"
+                    style="background-color: #{slot.loaded.tray_color}"
+                  ></div>
+                  <div class="text-sm">
+                    <p class="font-medium text-gray-900 dark:text-white">{slot.loaded.tray_type}</p>
+                    <p class="text-gray-600 dark:text-gray-400">{slot.loaded.nozzle_temp_min}-{slot.loaded.nozzle_temp_max}°C</p>
+                  </div>
+                </div>
+              </div>
+            {/if}
+
             {#if slot.filament}
               <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-3">
+                <p class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">🎯 To Sync:</p>
                 <div class="flex items-center gap-3 mb-2">
                   <div
-                    class="w-12 h-12 rounded-lg border-2 border-gray-300 dark:border-gray-600"
+                    class="w-10 h-10 rounded-lg border-2 border-gray-300 dark:border-gray-600"
                     style="background-color: {slot.filament.color}"
                   ></div>
                   <div>
