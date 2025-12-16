@@ -30,7 +30,7 @@ pub struct AMSTrayInfo {
     pub nozzle_temp_max: u16,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AMSStatus {
     pub ams_id: u8,
     pub trays: Vec<AMSTrayInfo>,
