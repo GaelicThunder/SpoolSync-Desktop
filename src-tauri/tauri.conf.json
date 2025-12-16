@@ -6,13 +6,11 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../build",
-    "devtools": true
+    "frontendDist": "../build"
   },
   "app": {
     "security": {
-      "csp": null,
-      "devtools": true
+      "csp": null
     },
     "windows": [
       {
@@ -22,7 +20,8 @@
         "minWidth": 1000,
         "minHeight": 700,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "devtools": true
       }
     ],
     "withGlobalTauri": true

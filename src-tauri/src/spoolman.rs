@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpoolmanFilament {
@@ -133,5 +134,31 @@ impl SpoolmanClient {
         brands.dedup();
 
         Ok(brands)
+    }
+
+    pub async fn get_materials(&self) -> Result<Vec<String>, String> {
+        let url = format!("{}/filaments.json", self.base_url);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch: {}", e))?;
+
+        let filaments: Vec<SpoolmanFilament> = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse: {}", e))?;
+
+        let materials_set: HashSet<String> = filaments
+            .into_iter()
+            .filter_map(|f| f.material)
+            .collect();
+
+        let mut materials: Vec<String> = materials_set.into_iter().collect();
+        materials.sort();
+
+        Ok(materials)
     }
 }

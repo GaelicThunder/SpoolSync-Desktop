@@ -46,6 +46,12 @@ fn get_materials(state: State<AppState>) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+async fn get_spoolman_materials(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let spoolman = Arc::clone(&state.spoolman);
+    spoolman.get_materials().await
+}
+
+#[tauri::command]
 fn add_favorite(state: State<AppState>, profile: FilamentProfile) -> Result<i64, String> {
     let db = state.db.lock().unwrap();
     db.add_favorite(profile).map_err(|e| e.to_string())
@@ -145,6 +151,7 @@ fn main() {
             get_custom_profiles,
             get_brands,
             get_materials,
+            get_spoolman_materials,
             add_favorite,
             remove_favorite,
             create_custom_profile,
