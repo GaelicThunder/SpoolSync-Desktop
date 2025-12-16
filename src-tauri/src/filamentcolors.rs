@@ -47,7 +47,7 @@ impl FilamentColorsClient {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
-            base_url: "https://filamentcolors.xyz/api".to_string(),
+            base_url: "https://filamentcolors.xyz".to_string(),
         }
     }
 
@@ -58,14 +58,14 @@ impl FilamentColorsClient {
         limit: Option<i32>,
         offset: Option<i32>,
     ) -> Result<FilamentColorsResponse, String> {
-        let mut url = format!("{}/swatch/", self.base_url);
+        let mut url = format!("{}/api/swatch/", self.base_url);
         let mut params = vec![];
 
         if let Some(mfr) = manufacturer {
-            params.push(format!("manufacturer={}", mfr));
+            params.push(format!("manufacturer__name={}", urlencoding::encode(&mfr)));
         }
         if let Some(mat) = material_type {
-            params.push(format!("filament_type={}", mat));
+            params.push(format!("filament_type__name={}", urlencoding::encode(&mat)));
         }
         if let Some(lim) = limit {
             params.push(format!("limit={}", lim));
@@ -84,12 +84,13 @@ impl FilamentColorsClient {
         let response = self
             .client
             .get(&url)
+            .header("User-Agent", "SpoolSync/1.0")
             .send()
             .await
             .map_err(|e| format!("Failed to fetch: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("API error: {}", response.status()));
+            return Err(format!("API error: {} - {}", response.status(), response.text().await.unwrap_or_default()));
         }
 
         let data: FilamentColorsResponse = response
@@ -97,7 +98,7 @@ impl FilamentColorsClient {
             .await
             .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
-        println!("✅ Loaded {} swatches from FilamentColors.xyz", data.results.len());
+        println!("✅ Loaded {} swatches (total: {})", data.results.len(), data.count);
 
         Ok(data)
     }
