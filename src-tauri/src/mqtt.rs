@@ -21,6 +21,54 @@ pub struct FilamentSyncCommand {
     pub bed_temp: u16,
 }
 
+struct NoCertVerification;
+
+impl rumqttc::tokio_rustls::rustls::client::danger::ServerCertVerifier for NoCertVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rumqttc::tokio_rustls::rustls::pki_types::CertificateDer,
+        _intermediates: &[rumqttc::tokio_rustls::rustls::pki_types::CertificateDer],
+        _server_name: &rumqttc::tokio_rustls::rustls::pki_types::ServerName,
+        _ocsp_response: &[u8],
+        _now: rumqttc::tokio_rustls::rustls::pki_types::UnixTime,
+    ) -> Result<rumqttc::tokio_rustls::rustls::client::danger::ServerCertVerified, rumqttc::tokio_rustls::rustls::Error> {
+        Ok(rumqttc::tokio_rustls::rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rumqttc::tokio_rustls::rustls::pki_types::CertificateDer,
+        _dss: &rumqttc::tokio_rustls::rustls::DigitallySignedStruct,
+    ) -> Result<rumqttc::tokio_rustls::rustls::client::danger::HandshakeSignatureValid, rumqttc::tokio_rustls::rustls::Error> {
+        Ok(rumqttc::tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rumqttc::tokio_rustls::rustls::pki_types::CertificateDer,
+        _dss: &rumqttc::tokio_rustls::rustls::DigitallySignedStruct,
+    ) -> Result<rumqttc::tokio_rustls::rustls::client::danger::HandshakeSignatureValid, rumqttc::tokio_rustls::rustls::Error> {
+        Ok(rumqttc::tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rumqttc::tokio_rustls::rustls::SignatureScheme> {
+        vec![
+            rumqttc::tokio_rustls::rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::RSA_PKCS1_SHA512,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::RSA_PSS_SHA256,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::RSA_PSS_SHA384,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::RSA_PSS_SHA512,
+            rumqttc::tokio_rustls::rustls::SignatureScheme::ED25519,
+        ]
+    }
+}
+
 pub struct BambuMqttClient {
     #[allow(dead_code)]
     client_id: String,
@@ -69,7 +117,6 @@ impl BambuMqttClient {
             println!("⏳ Waiting for connection events (10s timeout)...");
             let result = tokio::time::timeout(Duration::from_secs(10), async {
                 let mut event_count = 0;
-                let mut connected = false;
                 
                 loop {
                     match event_loop.poll().await {
@@ -81,8 +128,8 @@ impl BambuMqttClient {
                                     println!("📨 Event #{}: ConnAck received!", event_count);
                                     println!("   Session present: {}", connack.session_present);
                                     println!("   Code: {:?}", connack.code);
-                                    connected = true;
-                                    break;
+                                    client.disconnect().await.ok();
+                                    return Ok(format!("Successfully connected to printer '{}'", config.name));
                                 }
                                 Event::Incoming(packet) => {
                                     println!("📨 Event #{}: Incoming {:?}", event_count, packet);
@@ -97,13 +144,6 @@ impl BambuMqttClient {
                             return Err(format!("Connection error: {:?}", e));
                         }
                     }
-                }
-                
-                if connected {
-                    client.disconnect().await.ok();
-                    Ok(format!("Successfully connected to printer '{}'", config.name))
-                } else {
-                    Err("Connection loop ended without success".to_string())
                 }
             })
             .await;
@@ -126,7 +166,6 @@ impl BambuMqttClient {
                     eprintln!("     → Check in printer: Settings → Network → Access Code");
                     eprintln!("  3. Printer MQTT is disabled or printer is offline");
                     eprintln!("  4. Firewall blocking port 8883");
-                    eprintln!("  5. TLS certificate validation failing");
                     Err("Connection timeout - no response from printer".to_string())
                 }
             }
@@ -214,29 +253,11 @@ impl BambuMqttClient {
         mqtt_options.set_keep_alive(Duration::from_secs(30));
         mqtt_options.set_credentials("bblp", &config.access_code);
 
-        println!("🔐 Loading TLS certificates...");
-        let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
+        println!("🔐 Configuring TLS (accepting self-signed Bambu Lab certs)...");
         
-        let cert_result = rustls_native_certs::load_native_certs();
-        
-        let mut loaded_certs = 0;
-        for cert in cert_result.certs {
-            if root_store.add(cert).is_ok() {
-                loaded_certs += 1;
-            }
-        }
-        
-        println!("   ✅ Loaded {} system certificates", loaded_certs);
-        
-        if !cert_result.errors.is_empty() {
-            eprintln!("   ⚠️ Certificate load warnings: {} errors", cert_result.errors.len());
-            for err in &cert_result.errors {
-                eprintln!("      - {:?}", err);
-            }
-        }
-
         let client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoCertVerification))
             .with_no_client_auth();
 
         mqtt_options.set_transport(Transport::Tls(TlsConfiguration::Rustls(
