@@ -28,11 +28,7 @@
   },
   "bundle": {
     "active": false,
-    "targets": "all",
-    "protocol": {
-      "name": "spoolsync",
-      "schemes": ["spoolsync"]
-    }
+    "targets": "all"
   },
   "plugins": {}
 }

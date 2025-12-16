@@ -4,7 +4,6 @@
   import { spoolmanFilaments, spoolmanTotal, spoolmanLoading, spoolmanBrands, spoolmanMaterials, searchSpoolman, loadBrands, loadMaterials, debugFilament, type SpoolmanFilament } from '$lib/stores/spoolman';
   import { addFavorite } from '$lib/stores/filaments';
   import type { FilamentProfile } from '$lib/stores/filaments';
-  import { generateShareableLink, encodeFilamentData } from '$lib/stores/deeplink';
 
   let searchQuery = '';
   let selectedBrand = '';
@@ -70,19 +69,9 @@
     copyMessage = '';
   }
 
-  async function copyLink(filament: SpoolmanFilament) {
-    const link = generateShareableLink(filament);
-    try {
-      await navigator.clipboard.writeText(link);
-      copyMessage = '✅ Link copied! Share with other SpoolSync users.';
-      setTimeout(() => copyMessage = '', 3000);
-    } catch (err) {
-      copyMessage = '❌ Failed to copy';
-    }
-  }
-
   function showJson(filament: SpoolmanFilament) {
     const data = {
+      version: 1,
       id: filament.id,
       manufacturer: filament.manufacturer,
       name: filament.name,
@@ -104,8 +93,8 @@
   async function copyJson() {
     try {
       await navigator.clipboard.writeText(jsonData);
-      copyMessage = '✅ JSON copied!';
-      setTimeout(() => copyMessage = '', 2000);
+      copyMessage = '✅ JSON copied! Share with others.';
+      setTimeout(() => copyMessage = '', 3000);
     } catch (err) {
       copyMessage = '❌ Failed to copy';
     }
@@ -273,23 +262,14 @@
               {selectedFilament.name}
             </p>
           {/if}
-          <div class="flex flex-wrap gap-2 mt-3">
-            <button
-              onclick={() => copyLink(selectedFilament)}
-              class="px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors text-sm font-medium"
-            >
-              🔗 Copy Share Link
-            </button>
+          <div class="mt-4">
             <button
               onclick={() => showJson(selectedFilament)}
-              class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              class="px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors text-sm font-medium"
             >
-              📄 View JSON
+              🔗 Export & Share
             </button>
           </div>
-          {#if copyMessage}
-            <p class="text-sm text-green-600 dark:text-green-400 mt-2">{copyMessage}</p>
-          {/if}
         </div>
       </div>
 
@@ -388,8 +368,11 @@
       onclick={(e) => e.stopPropagation()}
     >
       <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-4">
-        Filament Data (JSON)
+        🔗 Share Filament Data
       </h3>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Copy this JSON or download it. Others can import it into their SpoolSync app.
+      </p>
       <pre class="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-auto max-h-96 text-sm font-mono text-gray-900 dark:text-gray-100">{jsonData}</pre>
       
       <div class="flex gap-3 mt-6">
@@ -403,7 +386,7 @@
           onclick={copyJson}
           class="flex-1 px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-semibold"
         >
-          📋 Copy
+          📋 Copy JSON
         </button>
         <button
           onclick={() => downloadJson(selectedFilament!)}
