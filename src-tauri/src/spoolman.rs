@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpoolmanFilament {
@@ -62,7 +62,7 @@ impl SpoolmanClient {
     }
 
     async fn ensure_cache(&self) -> Result<(), String> {
-        let mut cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().await;
         
         if cache.is_some() {
             println!("✅ Using cached SpoolmanDB data");
@@ -93,7 +93,7 @@ impl SpoolmanClient {
 
         println!("✅ Cached {} filaments from SpoolmanDB", filaments.len());
 
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().await;
         *cache = Some(filaments);
 
         Ok(())
@@ -109,7 +109,7 @@ impl SpoolmanClient {
     ) -> Result<SpoolmanResponse, String> {
         self.ensure_cache().await?;
 
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().await;
         let mut filaments = cache.as_ref().unwrap().clone();
         drop(cache);
 
@@ -145,7 +145,7 @@ impl SpoolmanClient {
     pub async fn get_brands(&self) -> Result<Vec<String>, String> {
         self.ensure_cache().await?;
 
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().await;
         let filaments = cache.as_ref().unwrap();
 
         let mut brands: Vec<String> = filaments
@@ -164,7 +164,7 @@ impl SpoolmanClient {
     pub async fn get_materials(&self) -> Result<Vec<String>, String> {
         self.ensure_cache().await?;
 
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().await;
         let filaments = cache.as_ref().unwrap();
 
         let materials_set: HashSet<String> = filaments
@@ -182,7 +182,7 @@ impl SpoolmanClient {
 
     pub async fn sync_database(&self) -> Result<(), String> {
         println!("🔄 Force syncing SpoolmanDB...");
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock().await;
         *cache = None;
         drop(cache);
         
