@@ -9,13 +9,34 @@ pub struct SpoolmanFilament {
     pub material: String,
     pub density: f64,
     pub diameter: f64,
-    pub color_hex: String,
+    #[serde(default)]
+    pub color_hex: Option<String>,
+    #[serde(default)]
+    pub color_hexes: Option<Vec<String>>,
+    #[serde(default)]
     pub weight: Option<f64>,
-    pub spool_weight: Option<i32>,
-    #[serde(rename = "extruder_temp")]
+    #[serde(default)]
+    pub spool_weight: Option<u32>,
+    #[serde(default)]
+    pub spool_type: Option<String>,
+    #[serde(rename = "extruder_temp", default)]
     pub settings_extruder_temp: Option<i32>,
-    #[serde(rename = "bed_temp")]
+    #[serde(rename = "extruder_temp_range", default)]
+    pub extruder_temp_range: Option<Vec<i32>>,
+    #[serde(rename = "bed_temp", default)]
     pub settings_bed_temp: Option<i32>,
+    #[serde(rename = "bed_temp_range", default)]
+    pub bed_temp_range: Option<Vec<i32>>,
+    #[serde(default)]
+    pub finish: Option<String>,
+    #[serde(default)]
+    pub multi_color_direction: Option<String>,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default)]
+    pub translucent: bool,
+    #[serde(default)]
+    pub glow: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,7 +81,10 @@ impl SpoolmanClient {
         let mut filaments: Vec<SpoolmanFilament> = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+            .map_err(|e| {
+                eprintln!("JSON parse error details: {:?}", e);
+                format!("Failed to parse JSON: {}", e)
+            })?;
 
         println!("Loaded {} filaments from SpoolmanDB", filaments.len());
 
@@ -107,7 +131,10 @@ impl SpoolmanClient {
         let filaments: Vec<SpoolmanFilament> = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+            .map_err(|e| {
+                eprintln!("JSON parse error details: {:?}", e);
+                format!("Failed to parse JSON: {}", e)
+            })?;
 
         let mut brands: Vec<String> = filaments
             .into_iter()
@@ -136,7 +163,10 @@ impl SpoolmanClient {
         let filaments: Vec<SpoolmanFilament> = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+            .map_err(|e| {
+                eprintln!("JSON parse error details: {:?}", e);
+                format!("Failed to parse JSON: {}", e)
+            })?;
 
         let materials_set: HashSet<String> = filaments
             .into_iter()
