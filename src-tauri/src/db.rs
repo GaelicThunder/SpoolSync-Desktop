@@ -18,9 +18,10 @@ pub struct FilamentProfile {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
+    pub printer_name: Option<String>,
     pub printer_ip: String,
     pub printer_serial: String,
-    pub access_code: String,
+    pub printer_access_code: String,
     pub default_ams: i32,
     pub default_tray: i32,
     pub auto_sync: bool,
@@ -32,29 +33,18 @@ pub struct Database {
 
 impl Database {
     pub fn new() -> Result<Self> {
-        let db_path = Self::get_db_path();
-        
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
-
-        let conn = Connection::open(&db_path)?;
-        let db = Database { conn };
-        db.create_tables()?;
-        db.seed_initial_data()?;
-        Ok(db)
-    }
-
-    fn get_db_path() -> PathBuf {
         let data_dir = dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("SpoolSync");
-        data_dir.join("spoolsync.db")
-    }
+            .ok_or_else(|| rusqlite::Error::InvalidPath(PathBuf::from("No data directory")))?;
+        let app_dir = data_dir.join("spoolsync-desktop");
+        std::fs::create_dir_all(&app_dir)?;
 
-    fn create_tables(&self) -> Result<()> {
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS profiles (
+        let db_path = app_dir.join("spoolsync.db");
+        println!("📂 Database path: {:?}", db_path);
+
+        let conn = Connection::open(db_path)?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS filament_profiles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 brand TEXT NOT NULL,
                 material TEXT NOT NULL,
@@ -69,12 +59,13 @@ impl Database {
             [],
         )?;
 
-        self.conn.execute(
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                printer_name TEXT,
                 printer_ip TEXT NOT NULL DEFAULT '',
                 printer_serial TEXT NOT NULL DEFAULT '',
-                access_code TEXT NOT NULL DEFAULT '',
+                printer_access_code TEXT NOT NULL DEFAULT '',
                 default_ams INTEGER NOT NULL DEFAULT 0,
                 default_tray INTEGER NOT NULL DEFAULT 0,
                 auto_sync INTEGER NOT NULL DEFAULT 0
@@ -82,151 +73,86 @@ impl Database {
             [],
         )?;
 
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS brands (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
-            )",
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (id, printer_ip, printer_serial, printer_access_code) VALUES (1, '', '', '')",
             [],
         )?;
 
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS materials (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
-            )",
-            [],
-        )?;
-
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM settings WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )?;
-
-        if count == 0 {
-            self.conn.execute(
-                "INSERT INTO settings (id) VALUES (1)",
-                [],
-            )?;
-        }
-
-        Ok(())
-    }
-
-    fn seed_initial_data(&self) -> Result<()> {
-        let brands = vec![
-            "Bambu Lab", "Polymaker", "Prusament", "eSUN", "ColorFabb",
-            "Fillamentum", "Hatchbox", "Overture", "Sunlu", "3DJake"
-        ];
-
-        for brand in brands {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO brands (name) VALUES (?1)",
-                params![brand],
-            ).ok();
-        }
-
-        let materials = vec![
-            "PLA", "PETG", "ABS", "TPU", "TPE", "ASA", "Nylon", "PC",
-            "PLA+", "PETG+", "Carbon Fiber", "Wood Fill", "Silk"
-        ];
-
-        for material in materials {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO materials (name) VALUES (?1)",
-                params![material],
-            ).ok();
-        }
-
-        Ok(())
-    }
-
-    pub fn get_brands(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT name FROM brands ORDER BY name")?;
-        let brands = stmt.query_map([], |row| row.get(0))?;
-        brands.collect()
-    }
-
-    pub fn get_materials(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT name FROM materials ORDER BY name")?;
-        let materials = stmt.query_map([], |row| row.get(0))?;
-        materials.collect()
-    }
-
-    pub fn add_brand(&self, name: String) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO brands (name) VALUES (?1)",
-            params![name],
-        )?;
-        Ok(())
-    }
-
-    pub fn add_material(&self, name: String) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO materials (name) VALUES (?1)",
-            params![name],
-        )?;
-        Ok(())
+        Ok(Database { conn })
     }
 
     pub fn get_favorites(&self) -> Result<Vec<FilamentProfile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, brand, material, color, nozzle_temp, bed_temp, density, diameter, is_favorite, is_custom 
-             FROM profiles 
-             WHERE is_favorite = 1
-             ORDER BY id DESC",
+             FROM filament_profiles WHERE is_favorite = 1",
         )?;
 
-        let profiles = stmt.query_map([], |row| {
-            Ok(FilamentProfile {
-                id: Some(row.get(0)?),
-                brand: row.get(1)?,
-                material: row.get(2)?,
-                color: row.get(3)?,
-                nozzle_temp: row.get(4)?,
-                bed_temp: row.get(5)?,
-                density: row.get(6)?,
-                diameter: row.get(7)?,
-                is_favorite: row.get::<_, i32>(8)? == 1,
-                is_custom: row.get::<_, i32>(9)? == 1,
-            })
-        })?;
+        let profiles = stmt
+            .query_map([], |row| {
+                Ok(FilamentProfile {
+                    id: Some(row.get(0)?),
+                    brand: row.get(1)?,
+                    material: row.get(2)?,
+                    color: row.get(3)?,
+                    nozzle_temp: row.get(4)?,
+                    bed_temp: row.get(5)?,
+                    density: row.get(6)?,
+                    diameter: row.get(7)?,
+                    is_favorite: row.get::<_, i32>(8)? == 1,
+                    is_custom: row.get::<_, i32>(9)? == 1,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
 
-        profiles.collect()
+        Ok(profiles)
     }
 
     pub fn get_custom_profiles(&self) -> Result<Vec<FilamentProfile>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, brand, material, color, nozzle_temp, bed_temp, density, diameter, is_favorite, is_custom 
-             FROM profiles 
-             WHERE is_custom = 1
-             ORDER BY id DESC",
+             FROM filament_profiles WHERE is_custom = 1",
         )?;
 
-        let profiles = stmt.query_map([], |row| {
-            Ok(FilamentProfile {
-                id: Some(row.get(0)?),
-                brand: row.get(1)?,
-                material: row.get(2)?,
-                color: row.get(3)?,
-                nozzle_temp: row.get(4)?,
-                bed_temp: row.get(5)?,
-                density: row.get(6)?,
-                diameter: row.get(7)?,
-                is_favorite: row.get::<_, i32>(8)? == 1,
-                is_custom: row.get::<_, i32>(9)? == 1,
-            })
-        })?;
+        let profiles = stmt
+            .query_map([], |row| {
+                Ok(FilamentProfile {
+                    id: Some(row.get(0)?),
+                    brand: row.get(1)?,
+                    material: row.get(2)?,
+                    color: row.get(3)?,
+                    nozzle_temp: row.get(4)?,
+                    bed_temp: row.get(5)?,
+                    density: row.get(6)?,
+                    diameter: row.get(7)?,
+                    is_favorite: row.get::<_, i32>(8)? == 1,
+                    is_custom: row.get::<_, i32>(9)? == 1,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
 
-        profiles.collect()
+        Ok(profiles)
     }
 
-    pub fn add_favorite(&self, mut profile: FilamentProfile) -> Result<i64> {
-        profile.is_favorite = true;
+    pub fn get_brands(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT DISTINCT brand FROM filament_profiles ORDER BY brand")?;
+        let brands = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(brands)
+    }
+
+    pub fn get_materials(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT DISTINCT material FROM filament_profiles ORDER BY material")?;
+        let materials = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(materials)
+    }
+
+    pub fn add_favorite(&self, profile: FilamentProfile) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO profiles (brand, material, color, nozzle_temp, bed_temp, density, diameter, is_favorite, is_custom)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO filament_profiles (brand, material, color, nozzle_temp, bed_temp, density, diameter, is_favorite, is_custom)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0)",
             params![
                 profile.brand,
                 profile.material,
@@ -235,86 +161,87 @@ impl Database {
                 profile.bed_temp,
                 profile.density,
                 profile.diameter,
-                if profile.is_favorite { 1 } else { 0 },
-                if profile.is_custom { 1 } else { 0 },
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
     pub fn remove_favorite(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM filament_profiles WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn create_custom_profile(&self, profile: FilamentProfile) -> Result<i64> {
         self.conn.execute(
-            "DELETE FROM profiles WHERE id = ?1",
-            params![id],
+            "INSERT INTO filament_profiles (brand, material, color, nozzle_temp, bed_temp, density, diameter, is_favorite, is_custom)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1)",
+            params![
+                profile.brand,
+                profile.material,
+                profile.color,
+                profile.nozzle_temp,
+                profile.bed_temp,
+                profile.density,
+                profile.diameter,
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn update_custom_profile(&self, profile: FilamentProfile) -> Result<()> {
+        self.conn.execute(
+            "UPDATE filament_profiles SET brand = ?1, material = ?2, color = ?3, nozzle_temp = ?4, bed_temp = ?5, density = ?6, diameter = ?7
+             WHERE id = ?8",
+            params![
+                profile.brand,
+                profile.material,
+                profile.color,
+                profile.nozzle_temp,
+                profile.bed_temp,
+                profile.density,
+                profile.diameter,
+                profile.id,
+            ],
         )?;
         Ok(())
     }
 
-    pub fn create_custom_profile(&self, mut profile: FilamentProfile) -> Result<i64> {
-        profile.is_custom = true;
-        profile.is_favorite = true;
-        
-        self.add_brand(profile.brand.clone())?;
-        self.add_material(profile.material.clone())?;
-        
-        self.add_favorite(profile)
-    }
-
-    pub fn update_custom_profile(&self, profile: FilamentProfile) -> Result<()> {
-        if let Some(id) = profile.id {
-            self.conn.execute(
-                "UPDATE profiles 
-                 SET brand = ?1, material = ?2, color = ?3, nozzle_temp = ?4, bed_temp = ?5, density = ?6, diameter = ?7
-                 WHERE id = ?8",
-                params![
-                    profile.brand,
-                    profile.material,
-                    profile.color,
-                    profile.nozzle_temp,
-                    profile.bed_temp,
-                    profile.density,
-                    profile.diameter,
-                    id,
-                ],
-            )?;
-        }
+    pub fn delete_custom_profile(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM filament_profiles WHERE id = ?1", params![id])?;
         Ok(())
     }
 
-    pub fn delete_custom_profile(&self, id: i64) -> Result<()> {
-        self.remove_favorite(id)
-    }
-
     pub fn get_settings(&self) -> Result<Settings> {
-        self.conn.query_row(
-            "SELECT printer_ip, printer_serial, access_code, default_ams, default_tray, auto_sync 
-             FROM settings WHERE id = 1",
-            [],
-            |row| {
-                Ok(Settings {
-                    printer_ip: row.get(0)?,
-                    printer_serial: row.get(1)?,
-                    access_code: row.get(2)?,
-                    default_ams: row.get(3)?,
-                    default_tray: row.get(4)?,
-                    auto_sync: row.get::<_, i32>(5)? == 1,
-                })
-            },
-        )
+        let mut stmt = self.conn.prepare(
+            "SELECT printer_name, printer_ip, printer_serial, printer_access_code, default_ams, default_tray, auto_sync FROM settings WHERE id = 1",
+        )?;
+
+        let settings = stmt.query_row([], |row| {
+            Ok(Settings {
+                printer_name: row.get(0)?,
+                printer_ip: row.get(1)?,
+                printer_serial: row.get(2)?,
+                printer_access_code: row.get(3)?,
+                default_ams: row.get(4)?,
+                default_tray: row.get(5)?,
+                auto_sync: row.get::<_, i32>(6)? == 1,
+            })
+        })?;
+
+        Ok(settings)
     }
 
     pub fn save_settings(&self, settings: Settings) -> Result<()> {
         self.conn.execute(
-            "UPDATE settings 
-             SET printer_ip = ?1, printer_serial = ?2, access_code = ?3, default_ams = ?4, default_tray = ?5, auto_sync = ?6
-             WHERE id = 1",
+            "UPDATE settings SET printer_name = ?1, printer_ip = ?2, printer_serial = ?3, printer_access_code = ?4, default_ams = ?5, default_tray = ?6, auto_sync = ?7 WHERE id = 1",
             params![
+                settings.printer_name,
                 settings.printer_ip,
                 settings.printer_serial,
-                settings.access_code,
+                settings.printer_access_code,
                 settings.default_ams,
                 settings.default_tray,
-                if settings.auto_sync { 1 } else { 0 },
+                settings.auto_sync as i32,
             ],
         )?;
         Ok(())
