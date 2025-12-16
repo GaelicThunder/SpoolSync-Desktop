@@ -58,31 +58,53 @@ impl BambuMqttClient {
                 }
             };
 
-            println!("⏳ Waiting for connection events (5s timeout)...");
-            let result = tokio::time::timeout(Duration::from_secs(5), async {
+            println!("📤 Subscribing to report topic to trigger connection...");
+            let report_topic = format!("device/{}/report", config.serial_number);
+            if let Err(e) = client.subscribe(&report_topic, QoS::AtMostOnce).await {
+                eprintln!("❌ Failed to subscribe: {}", e);
+                return Err(format!("Subscribe failed: {}", e));
+            }
+            println!("✅ Subscribe request sent\n");
+
+            println!("⏳ Waiting for connection events (10s timeout)...");
+            let result = tokio::time::timeout(Duration::from_secs(10), async {
                 let mut event_count = 0;
-                while let Ok(notification) = event_loop.poll().await {
-                    event_count += 1;
-                    println!("📨 Event #{}: {:?}", event_count, notification);
-                    
-                    match notification {
-                        Event::Incoming(Packet::ConnAck(connack)) => {
-                            println!("✅ ConnAck received: {:?}", connack);
-                            client.disconnect().await.ok();
-                            return Ok(format!(
-                                "Successfully connected to printer '{}'",
-                                config.name
-                            ));
+                let mut connected = false;
+                
+                loop {
+                    match event_loop.poll().await {
+                        Ok(notification) => {
+                            event_count += 1;
+                            
+                            match &notification {
+                                Event::Incoming(Packet::ConnAck(connack)) => {
+                                    println!("📨 Event #{}: ConnAck received!", event_count);
+                                    println!("   Session present: {}", connack.session_present);
+                                    println!("   Code: {:?}", connack.code);
+                                    connected = true;
+                                    break;
+                                }
+                                Event::Incoming(packet) => {
+                                    println!("📨 Event #{}: Incoming {:?}", event_count, packet);
+                                }
+                                Event::Outgoing(outgoing) => {
+                                    println!("📤 Event #{}: Outgoing {:?}", event_count, outgoing);
+                                }
+                            }
                         }
-                        Event::Incoming(packet) => {
-                            println!("📦 Incoming packet: {:?}", packet);
-                        }
-                        Event::Outgoing(packet) => {
-                            println!("📤 Outgoing packet: {:?}", packet);
+                        Err(e) => {
+                            eprintln!("❌ Event loop error: {:?}", e);
+                            return Err(format!("Connection error: {:?}", e));
                         }
                     }
                 }
-                Err("Event loop ended without ConnAck".to_string())
+                
+                if connected {
+                    client.disconnect().await.ok();
+                    Ok(format!("Successfully connected to printer '{}'", config.name))
+                } else {
+                    Err("Connection loop ended without success".to_string())
+                }
             })
             .await;
 
@@ -96,14 +118,16 @@ impl BambuMqttClient {
                     Err(e)
                 }
                 Err(_) => {
-                    eprintln!("\n⏱️ Connection timeout after 5 seconds");
-                    eprintln!("Possible issues:");
-                    eprintln!("  - Printer IP address incorrect or unreachable");
-                    eprintln!("  - Access code is wrong");
-                    eprintln!("  - Printer is offline or MQTT is disabled");
-                    eprintln!("  - Firewall blocking port 8883");
-                    eprintln!("  - TLS certificate issues");
-                    Err("Connection timeout".to_string())
+                    eprintln!("\n⏱️ Connection timeout after 10 seconds");
+                    eprintln!("\nPossible issues:");
+                    eprintln!("  1. Printer IP address incorrect or unreachable");
+                    eprintln!("     → Ping test: ping {}", config.ip_address);
+                    eprintln!("  2. Access code is wrong");
+                    eprintln!("     → Check in printer: Settings → Network → Access Code");
+                    eprintln!("  3. Printer MQTT is disabled or printer is offline");
+                    eprintln!("  4. Firewall blocking port 8883");
+                    eprintln!("  5. TLS certificate validation failing");
+                    Err("Connection timeout - no response from printer".to_string())
                 }
             }
         })
@@ -129,11 +153,13 @@ impl BambuMqttClient {
         rt.block_on(async {
             let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
 
-            tokio::spawn(async move {
+            let event_task = tokio::spawn(async move {
                 while let Ok(event) = event_loop.poll().await {
                     println!("📨 MQTT Event: {:?}", event);
                 }
             });
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
 
             let payload = serde_json::json!({
                 "print": {
@@ -166,6 +192,7 @@ impl BambuMqttClient {
             println!("✅ Message published, waiting 1s...");
             tokio::time::sleep(Duration::from_secs(1)).await;
             client.disconnect().await.ok();
+            event_task.abort();
 
             Ok(format!(
                 "Synced {} {} to AMS slot {}",
