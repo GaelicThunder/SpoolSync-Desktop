@@ -21,6 +21,7 @@ pub struct FilamentSyncCommand {
     pub bed_temp: u16,
 }
 
+#[derive(Debug)]
 struct NoCertVerification;
 
 impl rumqttc::tokio_rustls::rustls::client::danger::ServerCertVerifier for NoCertVerification {
