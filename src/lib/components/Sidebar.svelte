@@ -5,7 +5,6 @@
     { name: 'Dashboard', path: '/', icon: '🏠' },
     { name: 'Favorites', path: '/favorites', icon: '⭐' },
     { name: 'Custom Profiles', path: '/custom', icon: '⚙️' },
-    { name: 'Browse SpoolmanDB', path: '/browse', icon: '🔍' },
     { name: 'AMS Sync', path: '/ams', icon: '🔄' },
     { name: 'Settings', path: '/settings', icon: '⚙️' },
   ];
