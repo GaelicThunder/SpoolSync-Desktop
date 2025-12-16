@@ -204,43 +204,44 @@ impl BambuMqttClient {
             client.subscribe(&report_topic, QoS::AtMostOnce).await
                 .map_err(|e| format!("Subscribe failed: {}", e))?;
 
-            println!("⏳ Waiting for AMS status message (30s timeout)...");
-            println!("💡 Make sure printer is powered on and connected\n");
+            println!("⏳ Waiting for AMS status message (10s timeout)...\n");
             
-            let result = tokio::time::timeout(Duration::from_secs(30), async {
-                let mut message_count = 0;
+            let result = tokio::time::timeout(Duration::from_secs(10), async {
                 loop {
                     match event_loop.poll().await {
                         Ok(Event::Incoming(Packet::Publish(publish))) => {
-                            message_count += 1;
                             if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
-                                println!("\n📨 ========== MESSAGE #{} ==========", message_count);
-                                println!("{}", payload_str);
-                                println!("========== END MESSAGE #{} ==========\n", message_count);
-                                
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
                                     if let Some(print_obj) = json.get("print") {
                                         if let Some(ams_obj) = print_obj.get("ams") {
-                                            println!("✅ Found 'ams' in message #{}", message_count);
-                                            
                                             if let Some(ams_array) = ams_obj.get("ams").and_then(|a| a.as_array()) {
-                                                println!("✅ Found 'ams.ams' array with {} units", ams_array.len());
                                                 let mut statuses = Vec::new();
                                                 
                                                 for (ams_idx, ams_unit) in ams_array.iter().enumerate() {
                                                     if let Some(tray_array) = ams_unit.get("tray").and_then(|t| t.as_array()) {
-                                                        println!("📦 AMS {}: {} trays", ams_idx, tray_array.len());
                                                         let mut trays = Vec::new();
                                                         
                                                         for (tray_idx, tray_obj) in tray_array.iter().enumerate() {
                                                             let tray_type = tray_obj.get("tray_type").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                                                            let tray_color = tray_obj.get("tray_color").and_then(|c| c.as_str()).unwrap_or("000000").to_string();
-                                                            let nozzle_temp_min = tray_obj.get("nozzle_temp_min").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
-                                                            let nozzle_temp_max = tray_obj.get("nozzle_temp_max").and_then(|t| t.as_u64()).unwrap_or(0) as u16;
+                                                            let mut tray_color = tray_obj.get("tray_color").and_then(|c| c.as_str()).unwrap_or("000000").to_string();
+                                                            
+                                                            if tray_color.len() == 8 && tray_color.ends_with("FF") {
+                                                                tray_color = tray_color[..6].to_string();
+                                                            }
+                                                            
+                                                            let nozzle_temp_min = tray_obj.get("nozzle_temp_min")
+                                                                .and_then(|t| t.as_str())
+                                                                .and_then(|s| s.parse::<u16>().ok())
+                                                                .or_else(|| tray_obj.get("nozzle_temp_min").and_then(|t| t.as_u64()).map(|v| v as u16))
+                                                                .unwrap_or(0);
+                                                            
+                                                            let nozzle_temp_max = tray_obj.get("nozzle_temp_max")
+                                                                .and_then(|t| t.as_str())
+                                                                .and_then(|s| s.parse::<u16>().ok())
+                                                                .or_else(|| tray_obj.get("nozzle_temp_max").and_then(|t| t.as_u64()).map(|v| v as u16))
+                                                                .unwrap_or(0);
                                                             
                                                             if !tray_type.is_empty() {
-                                                                println!("   Tray {}: {} (#{}) {}°C-{}°C", 
-                                                                    tray_idx, tray_type, tray_color, nozzle_temp_min, nozzle_temp_max);
                                                                 trays.push(AMSTrayInfo {
                                                                     tray_id: tray_idx as u8,
                                                                     tray_type,
@@ -261,7 +262,15 @@ impl BambuMqttClient {
                                                 }
                                                 
                                                 if !statuses.is_empty() {
-                                                    println!("\n✅ Retrieved status for {} AMS unit(s)", statuses.len());
+                                                    println!("✅ Retrieved {} AMS unit(s)", statuses.len());
+                                                    for ams in &statuses {
+                                                        println!("   AMS {}: {} trays", ams.ams_id, ams.trays.len());
+                                                        for tray in &ams.trays {
+                                                            println!("      Slot {}: {} (#{}) {}°C-{}°C", 
+                                                                tray.tray_id, tray.tray_type, tray.tray_color, 
+                                                                tray.nozzle_temp_min, tray.nozzle_temp_max);
+                                                        }
+                                                    }
                                                     client.disconnect().await.ok();
                                                     return Ok(statuses);
                                                 }
@@ -273,7 +282,6 @@ impl BambuMqttClient {
                         }
                         Ok(_) => {},
                         Err(e) => {
-                            eprintln!("\n❌ Event loop error: {:?}", e);
                             return Err(format!("Connection error: {:?}", e));
                         }
                     }
@@ -286,11 +294,7 @@ impl BambuMqttClient {
                 Ok(Ok(statuses)) => Ok(statuses),
                 Ok(Err(e)) => Err(e),
                 Err(_) => {
-                    println!("\n⚠️ No AMS status received within 30s");
-                    println!("   Make sure:");
-                    println!("   1. Printer is powered ON");
-                    println!("   2. Printer is connected to network");
-                    println!("   3. AMS is connected to printer");
+                    println!("⚠️ No AMS status received within 10s");
                     Ok(vec![])
                 }
             }
@@ -318,13 +322,13 @@ impl BambuMqttClient {
             let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
 
             let event_task = tokio::spawn(async move {
-                while let Ok(event) = event_loop.poll().await {
-                    println!("📨 MQTT Event: {:?}", event);
-                }
+                while let Ok(_event) = event_loop.poll().await {}
             });
 
             tokio::time::sleep(Duration::from_millis(500)).await;
 
+            let color_hex = command.color.trim_start_matches('#');
+            
             let payload = serde_json::json!({
                 "print": {
                     "sequence_id": "0",
@@ -332,15 +336,15 @@ impl BambuMqttClient {
                     "ams_id": 0,
                     "tray_id": command.slot_id,
                     "tray_info_idx": format!("{}", command.slot_id),
-                    "tray_color": command.color.replace('#', ""),
-                    "nozzle_temp_min": command.nozzle_temp,
-                    "nozzle_temp_max": command.nozzle_temp + 10,
+                    "tray_color": format!("{}FF", color_hex),
+                    "nozzle_temp_min": command.nozzle_temp.to_string(),
+                    "nozzle_temp_max": (command.nozzle_temp + 10).to_string(),
                     "tray_type": command.material,
                 }
             });
 
             let topic = format!("device/{}/request", config.serial_number);
-            println!("📤 Publishing to topic: {}", topic);
+            println!("📤 Publishing to: {}", topic);
             println!("📦 Payload: {}", payload);
 
             client
@@ -353,8 +357,8 @@ impl BambuMqttClient {
                 .await
                 .map_err(|e| format!("Failed to publish: {}", e))?;
 
-            println!("✅ Message published, waiting 1s...");
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            println!("✅ Message published, waiting 2s for confirmation...");
+            tokio::time::sleep(Duration::from_secs(2)).await;
             client.disconnect().await.ok();
             event_task.abort();
 
