@@ -4,6 +4,7 @@
   import { spoolmanFilaments, spoolmanTotal, spoolmanLoading, spoolmanBrands, spoolmanMaterials, searchSpoolman, loadBrands, loadMaterials, debugFilament, type SpoolmanFilament } from '$lib/stores/spoolman';
   import { addFavorite } from '$lib/stores/filaments';
   import type { FilamentProfile } from '$lib/stores/filaments';
+  import { generateShareableLink, encodeFilamentData } from '$lib/stores/deeplink';
 
   let searchQuery = '';
   let selectedBrand = '';
@@ -15,6 +16,8 @@
   let showModal = false;
   let scrollContainer: HTMLDivElement;
   let copyMessage = '';
+  let showJsonModal = false;
+  let jsonData = '';
 
   onMount(() => {
     loadBrands();
@@ -67,19 +70,55 @@
     copyMessage = '';
   }
 
-  function getFilamentLink(id: string): string {
-    return `https://donkie.github.io/SpoolmanDB/?id=${id}`;
-  }
-
-  async function copyLink(id: string) {
-    const link = getFilamentLink(id);
+  async function copyLink(filament: SpoolmanFilament) {
+    const link = generateShareableLink(filament);
     try {
       await navigator.clipboard.writeText(link);
-      copyMessage = '✅ Link copied!';
+      copyMessage = '✅ Link copied! Share with other SpoolSync users.';
+      setTimeout(() => copyMessage = '', 3000);
+    } catch (err) {
+      copyMessage = '❌ Failed to copy';
+    }
+  }
+
+  function showJson(filament: SpoolmanFilament) {
+    const data = {
+      id: filament.id,
+      manufacturer: filament.manufacturer,
+      name: filament.name,
+      material: filament.material,
+      density: filament.density,
+      diameter: filament.diameter,
+      color_hex: filament.color_hex,
+      weight: filament.weight,
+      spool_weight: filament.spool_weight,
+      extruder_temp: filament.extruder_temp,
+      bed_temp: filament.bed_temp,
+      translucent: filament.translucent,
+      glow: filament.glow,
+    };
+    jsonData = JSON.stringify(data, null, 2);
+    showJsonModal = true;
+  }
+
+  async function copyJson() {
+    try {
+      await navigator.clipboard.writeText(jsonData);
+      copyMessage = '✅ JSON copied!';
       setTimeout(() => copyMessage = '', 2000);
     } catch (err) {
       copyMessage = '❌ Failed to copy';
     }
+  }
+
+  function downloadJson(filament: SpoolmanFilament) {
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filament.manufacturer}_${filament.material}_${filament.name}.json`.replace(/\s+/g, '_');
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleAddToFavorites(filament: SpoolmanFilament) {
@@ -234,21 +273,19 @@
               {selectedFilament.name}
             </p>
           {/if}
-          <div class="flex gap-2 mt-3">
+          <div class="flex flex-wrap gap-2 mt-3">
             <button
-              onclick={() => copyLink(selectedFilament.id)}
-              class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              onclick={() => copyLink(selectedFilament)}
+              class="px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors text-sm font-medium"
             >
-              🔗 Copy Link
+              🔗 Copy Share Link
             </button>
-            <a
-              href={getFilamentLink(selectedFilament.id)}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onclick={() => showJson(selectedFilament)}
               class="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
             >
-              🌐 View on SpoolmanDB
-            </a>
+              📄 View JSON
+            </button>
           </div>
           {#if copyMessage}
             <p class="text-sm text-green-600 dark:text-green-400 mt-2">{copyMessage}</p>
@@ -337,6 +374,47 @@
           ⭐ Add to Favorites
         </button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if showJsonModal}
+  <div
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+    onclick={() => showJsonModal = false}
+  >
+    <div
+      class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full p-8"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-4">
+        Filament Data (JSON)
+      </h3>
+      <pre class="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg overflow-auto max-h-96 text-sm font-mono text-gray-900 dark:text-gray-100">{jsonData}</pre>
+      
+      <div class="flex gap-3 mt-6">
+        <button
+          onclick={() => showJsonModal = false}
+          class="flex-1 px-6 py-3 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-semibold"
+        >
+          Close
+        </button>
+        <button
+          onclick={copyJson}
+          class="flex-1 px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-semibold"
+        >
+          📋 Copy
+        </button>
+        <button
+          onclick={() => downloadJson(selectedFilament!)}
+          class="flex-1 px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+        >
+          📥 Download
+        </button>
+      </div>
+      {#if copyMessage}
+        <p class="text-sm text-green-600 dark:text-green-400 mt-3 text-center">{copyMessage}</p>
+      {/if}
     </div>
   </div>
 {/if}
