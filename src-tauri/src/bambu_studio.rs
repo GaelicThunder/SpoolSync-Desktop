@@ -6,29 +6,17 @@ use std::path::PathBuf;
 pub struct BambuFilamentProfile {
     pub name: String,
     pub from: Option<String>,
-    pub instantiation: Option<String>,
     pub inherits: Option<String>,
+    pub version: Option<String>,
     
-    pub filament_type: Vec<String>,
-    pub filament_vendor: Vec<String>,
-    pub filament_colour: Vec<String>,
+    pub filament_settings_id: Option<Vec<String>>,
+    pub filament_extruder_variant: Option<Vec<String>>,
     
-    pub nozzle_temperature: Vec<String>,
-    pub nozzle_temperature_range_low: Vec<String>,
-    pub nozzle_temperature_range_high: Vec<String>,
+    pub nozzle_temperature: Option<Vec<String>>,
+    pub nozzle_temperature_initial_layer: Option<Vec<String>>,
     
-    pub hot_plate_temp: Vec<String>,
-    pub hot_plate_temp_initial_layer: Vec<String>,
-    
-    pub filament_flow_ratio: Vec<String>,
-    pub filament_density: Vec<String>,
-    pub filament_diameter: Vec<String>,
-    pub filament_cost: Vec<String>,
-    
-    pub compatible_printers: Vec<String>,
-    pub compatible_printers_condition: Vec<String>,
-    pub compatible_prints: Vec<String>,
-    pub compatible_prints_condition: Vec<String>,
+    pub filament_max_volumetric_speed: Option<Vec<String>>,
+    pub slow_down_for_layer_cooling: Option<Vec<String>>,
 }
 
 impl Default for BambuFilamentProfile {
@@ -36,35 +24,21 @@ impl Default for BambuFilamentProfile {
         Self {
             name: String::new(),
             from: Some("User".to_string()),
-            instantiation: Some("true".to_string()),
             inherits: Some("Bambu PLA Basic @BBL X1C".to_string()),
-            
-            filament_type: vec!["PLA".to_string()],
-            filament_vendor: vec!["Generic".to_string()],
-            filament_colour: vec!["#FFFFFF".to_string()],
-            
-            nozzle_temperature: vec!["220".to_string()],
-            nozzle_temperature_range_low: vec!["190".to_string()],
-            nozzle_temperature_range_high: vec!["250".to_string()],
-            
-            hot_plate_temp: vec!["55".to_string()],
-            hot_plate_temp_initial_layer: vec!["55".to_string()],
-            
-            filament_flow_ratio: vec!["1".to_string()],
-            filament_density: vec!["1.24".to_string()],
-            filament_diameter: vec!["1.75".to_string()],
-            filament_cost: vec!["0".to_string()],
-            
-            compatible_printers: vec![],
-            compatible_printers_condition: vec![],
-            compatible_prints: vec![],
-            compatible_prints_condition: vec![],
+            version: Some("1.8.0.13".to_string()),
+            filament_settings_id: None,
+            filament_extruder_variant: Some(vec!["Direct Drive Standard".to_string()]),
+            nozzle_temperature: Some(vec!["220".to_string()]),
+            nozzle_temperature_initial_layer: Some(vec!["220".to_string()]),
+            filament_max_volumetric_speed: Some(vec!["20".to_string()]),
+            slow_down_for_layer_cooling: Some(vec!["0".to_string()]),
         }
     }
 }
 
 pub struct BambuStudioManager {
-    config_dir: PathBuf,
+    base_dir: PathBuf,
+    user_dirs: Vec<PathBuf>,
 }
 
 impl BambuStudioManager {
@@ -72,32 +46,62 @@ impl BambuStudioManager {
         let home = std::env::var("HOME")
             .map_err(|_| "Could not determine HOME directory".to_string())?;
         
-        let config_dir = PathBuf::from(home)
-            .join(".config/BambuStudio/user/default/filament");
+        let base_dir = PathBuf::from(home).join(".config/BambuStudio/user");
         
-        if !config_dir.exists() {
+        if !base_dir.exists() {
             return Err(format!(
                 "Bambu Studio config directory not found: {}\nMake sure Bambu Studio is installed.",
-                config_dir.display()
+                base_dir.display()
             ));
         }
         
-        Ok(Self { config_dir })
+        let mut user_dirs = Vec::new();
+        
+        for entry in fs::read_dir(&base_dir)
+            .map_err(|e| format!("Failed to read user directory: {}", e))? 
+        {
+            let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                let filament_dir = path.join("filament");
+                if filament_dir.exists() {
+                    user_dirs.push(filament_dir);
+                }
+            }
+        }
+        
+        if user_dirs.is_empty() {
+            return Err("No user profiles found in Bambu Studio".to_string());
+        }
+        
+        println!("✅ Found {} Bambu Studio user profile(s)", user_dirs.len());
+        
+        Ok(Self { base_dir, user_dirs })
     }
     
     pub fn list_profiles(&self) -> Result<Vec<String>, String> {
         let mut profiles = Vec::new();
         
-        let entries = fs::read_dir(&self.config_dir)
-            .map_err(|e| format!("Failed to read config directory: {}", e))?;
-        
-        for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-            let path = entry.path();
+        for user_dir in &self.user_dirs {
+            let entries = match fs::read_dir(user_dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
             
-            if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    profiles.push(name.to_string());
+            for entry in entries {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                let path = entry.path();
+                
+                if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !profiles.contains(&name.to_string()) {
+                            profiles.push(name.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -106,22 +110,31 @@ impl BambuStudioManager {
     }
     
     pub fn read_profile(&self, name: &str) -> Result<BambuFilamentProfile, String> {
-        let path = self.config_dir.join(format!("{}.json", name));
+        for user_dir in &self.user_dirs {
+            let path = user_dir.join(format!("{}.json", name));
+            
+            if path.exists() {
+                let content = fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read profile {}: {}", name, e))?;
+                
+                return serde_json::from_str(&content)
+                    .map_err(|e| format!("Failed to parse profile {}: {}", name, e));
+            }
+        }
         
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read profile {}: {}", name, e))?;
-        
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse profile {}: {}", name, e))
+        Err(format!("Profile '{}' not found", name))
     }
     
-    pub fn create_profile(
-        &self,
-        profile: &BambuFilamentProfile,
-    ) -> Result<String, String> {
+    pub fn create_profile(&self, profile: &BambuFilamentProfile) -> Result<String, String> {
+        if self.user_dirs.is_empty() {
+            return Err("No user directories found".to_string());
+        }
+        
+        let user_dir = &self.user_dirs[0];
+        
         let filename = self.sanitize_filename(&profile.name);
-        let json_path = self.config_dir.join(format!("{}.json", filename));
-        let info_path = self.config_dir.join(format!("{}.json.info", filename));
+        let json_path = user_dir.join(format!("{}.json", filename));
+        let info_path = user_dir.join(format!("{}.info", filename));
         
         if json_path.exists() {
             return Err(format!("Profile '{}' already exists", profile.name));
@@ -133,7 +146,18 @@ impl BambuStudioManager {
         fs::write(&json_path, json_content)
             .map_err(|e| format!("Failed to write profile JSON: {}", e))?;
         
-        let info_content = format!("name = {}\nfrom = User\n", profile.name);
+        let user_id = self.extract_user_id(user_dir);
+        let setting_id = self.generate_setting_id();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        let info_content = format!(
+            "sync_info =\n\nuser_id = {}\n\nsetting_id = {}\n\nbase_id = GFSG00_06\n\nupdated_time = {}\n",
+            user_id, setting_id, timestamp
+        );
+        
         fs::write(&info_path, info_content)
             .map_err(|e| format!("Failed to write .info file: {}", e))?;
         
@@ -141,45 +165,52 @@ impl BambuStudioManager {
         Ok(filename)
     }
     
-    pub fn update_profile(
-        &self,
-        name: &str,
-        profile: &BambuFilamentProfile,
-    ) -> Result<(), String> {
-        let filename = self.sanitize_filename(name);
-        let json_path = self.config_dir.join(format!("{}.json", filename));
-        
-        if !json_path.exists() {
-            return Err(format!("Profile '{}' does not exist", name));
+    pub fn update_profile(&self, name: &str, profile: &BambuFilamentProfile) -> Result<(), String> {
+        for user_dir in &self.user_dirs {
+            let filename = self.sanitize_filename(name);
+            let json_path = user_dir.join(format!("{}.json", filename));
+            
+            if json_path.exists() {
+                let json_content = serde_json::to_string_pretty(profile)
+                    .map_err(|e| format!("Failed to serialize profile: {}", e))?;
+                
+                fs::write(&json_path, json_content)
+                    .map_err(|e| format!("Failed to update profile: {}", e))?;
+                
+                println!("✅ Updated Bambu Studio profile: {}", name);
+                return Ok(());
+            }
         }
         
-        let json_content = serde_json::to_string_pretty(profile)
-            .map_err(|e| format!("Failed to serialize profile: {}", e))?;
-        
-        fs::write(&json_path, json_content)
-            .map_err(|e| format!("Failed to update profile: {}", e))?;
-        
-        println!("✅ Updated Bambu Studio profile: {}", name);
-        Ok(())
+        Err(format!("Profile '{}' not found", name))
     }
     
     pub fn delete_profile(&self, name: &str) -> Result<(), String> {
         let filename = self.sanitize_filename(name);
-        let json_path = self.config_dir.join(format!("{}.json", filename));
-        let info_path = self.config_dir.join(format!("{}.json.info", filename));
+        let mut deleted = false;
         
-        if json_path.exists() {
-            fs::remove_file(&json_path)
-                .map_err(|e| format!("Failed to delete JSON: {}", e))?;
+        for user_dir in &self.user_dirs {
+            let json_path = user_dir.join(format!("{}.json", filename));
+            let info_path = user_dir.join(format!("{}.info", filename));
+            
+            if json_path.exists() {
+                fs::remove_file(&json_path)
+                    .map_err(|e| format!("Failed to delete JSON: {}", e))?;
+                deleted = true;
+            }
+            
+            if info_path.exists() {
+                fs::remove_file(&info_path)
+                    .map_err(|e| format!("Failed to delete .info: {}", e))?;
+            }
         }
         
-        if info_path.exists() {
-            fs::remove_file(&info_path)
-                .map_err(|e| format!("Failed to delete .info: {}", e))?;
+        if deleted {
+            println!("✅ Deleted Bambu Studio profile: {}", name);
+            Ok(())
+        } else {
+            Err(format!("Profile '{}' not found", name))
         }
-        
-        println!("✅ Deleted Bambu Studio profile: {}", name);
-        Ok(())
     }
     
     pub fn create_from_spoolman(
@@ -193,21 +224,14 @@ impl BambuStudioManager {
         density: f32,
     ) -> Result<String, String> {
         let profile_name = format!("{} {} {}", vendor, material, name);
+        let setting_id = format!("{} {} {}", vendor, material, name);
         
         let mut profile = BambuFilamentProfile::default();
         profile.name = profile_name.clone();
-        profile.filament_vendor = vec![vendor.to_string()];
-        profile.filament_type = vec![material.to_string()];
-        profile.filament_colour = vec![color_hex.to_string()];
+        profile.filament_settings_id = Some(vec![setting_id]);
         
-        profile.nozzle_temperature = vec![nozzle_temp.to_string()];
-        profile.nozzle_temperature_range_low = vec![(nozzle_temp.saturating_sub(30)).to_string()];
-        profile.nozzle_temperature_range_high = vec![(nozzle_temp + 30).to_string()];
-        
-        profile.hot_plate_temp = vec![bed_temp.to_string()];
-        profile.hot_plate_temp_initial_layer = vec![bed_temp.to_string()];
-        
-        profile.filament_density = vec![density.to_string()];
+        profile.nozzle_temperature = Some(vec![nozzle_temp.to_string()]);
+        profile.nozzle_temperature_initial_layer = Some(vec![nozzle_temp.to_string()]);
         
         let inherit = match material {
             "PLA" => "Bambu PLA Basic @BBL X1C",
@@ -230,5 +254,23 @@ impl BambuStudioManager {
                 _ => c,
             })
             .collect()
+    }
+    
+    fn extract_user_id(&self, user_dir: &PathBuf) -> String {
+        user_dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("default")
+            .to_string()
+    }
+    
+    fn generate_setting_id(&self) -> String {
+        use std::time::SystemTime;
+        let timestamp = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("PFUS{:x}", timestamp % 0xFFFFFFFFFFFF)
     }
 }
