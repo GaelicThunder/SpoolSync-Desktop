@@ -5,6 +5,7 @@
     { name: 'Dashboard', path: '/', icon: '🏠' },
     { name: 'Favorites', path: '/favorites', icon: '⭐' },
     { name: 'Custom Profiles', path: '/custom', icon: '⚙️' },
+    { name: 'Bambu Studio', path: '/bambu-studio', icon: '🎨' },
     { name: 'AMS Sync', path: '/ams', icon: '🔄' },
     { name: 'Settings', path: '/settings', icon: '⚙️' },
   ];
