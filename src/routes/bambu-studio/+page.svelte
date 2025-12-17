@@ -13,13 +13,14 @@
   let searchQuery = '';
   let selectedBrand = '';
   let selectedMaterial = '';
-  let selectedFilament: SpoolmanFilament | null = null;
+  let selectedFilaments: Set<number> = new Set();
+  let importProgress = { current: 0, total: 0 };
 
   onMount(async () => {
     await loadProfiles();
     await loadBrands();
     await loadMaterials();
-    await searchSpoolman(undefined, undefined, undefined, 50, 0);
+    await searchSpoolman(undefined, undefined, undefined, 100, 0);
   });
 
   async function loadProfiles() {
@@ -61,44 +62,84 @@
       searchQuery || undefined,
       selectedBrand || undefined,
       selectedMaterial || undefined,
-      50,
+      100,
       0
     );
   }
 
-  async function importFromSpoolman(filament: SpoolmanFilament) {
+  function toggleSelection(filamentId: number) {
+    if (selectedFilaments.has(filamentId)) {
+      selectedFilaments.delete(filamentId);
+    } else {
+      selectedFilaments.add(filamentId);
+    }
+    selectedFilaments = selectedFilaments;
+  }
+
+  function clearSelection() {
+    selectedFilaments.clear();
+    selectedFilaments = selectedFilaments;
+  }
+
+  async function importSelected() {
+    if (selectedFilaments.size === 0) {
+      error = 'No filaments selected';
+      return;
+    }
+
+    const filamentsToImport = $spoolmanFilaments.filter(f => selectedFilaments.has(f.id));
+    
     loading = true;
     error = '';
     success = '';
+    importProgress = { current: 0, total: filamentsToImport.length };
+
+    let imported = 0;
+    let failed = 0;
     
-    try {
-      const vendor = filament.manufacturer || 'Generic';
-      const name = filament.name || 'Custom';
-      const material = filament.material || 'PLA';
-      const colorHex = filament.color_hex ? '#' + filament.color_hex.replace('#', '') : '#FFFFFF';
-      const nozzleTemp = filament.extruder_temp || 220;
-      const bedTemp = filament.bed_temp || 60;
-      const density = filament.density || 1.24;
+    for (const filament of filamentsToImport) {
+      try {
+        const vendor = filament.manufacturer || 'Generic';
+        const name = filament.name || 'Custom';
+        const material = filament.material || 'PLA';
+        const colorHex = filament.color_hex ? '#' + filament.color_hex.replace('#', '') : '#FFFFFF';
+        const nozzleTemp = filament.extruder_temp || 220;
+        const bedTemp = filament.bed_temp || 60;
+        const density = filament.density || 1.24;
 
-      await invoke('sync_spoolman_to_bambu_studio', {
-        vendor,
-        name,
-        material,
-        colorHex,
-        nozzleTemp,
-        bedTemp,
-        density
-      });
+        await invoke('sync_spoolman_to_bambu_studio', {
+          vendor,
+          name,
+          material,
+          colorHex,
+          nozzleTemp,
+          bedTemp,
+          density
+        });
 
-      success = `✅ Imported ${vendor} ${material} ${name} to Bambu Studio!`;
-      showSpoolmanModal = false;
-      await loadProfiles();
-      setTimeout(() => success = '', 5000);
-    } catch (e: any) {
-      error = e.toString();
-    } finally {
-      loading = false;
+        imported++;
+        importProgress.current++;
+      } catch (e: any) {
+        console.error(`Failed to import ${filament.manufacturer} ${filament.material}:`, e);
+        failed++;
+        importProgress.current++;
+      }
     }
+
+    loading = false;
+    
+    if (failed === 0) {
+      success = `✅ Successfully imported ${imported} profile(s)!`;
+    } else {
+      success = `✅ Imported ${imported} profile(s), ${failed} failed`;
+    }
+    
+    clearSelection();
+    await loadProfiles();
+    setTimeout(() => {
+      success = '';
+      importProgress = { current: 0, total: 0 };
+    }, 5000);
   }
 </script>
 
@@ -116,6 +157,17 @@
     {#if success}
       <div class="bg-green-100 dark:bg-green-900/30 border border-green-400 dark:border-green-700 text-green-700 dark:text-green-400 px-6 py-4 rounded-lg">
         <p class="font-semibold">{success}</p>
+        {#if importProgress.total > 0}
+          <div class="mt-2">
+            <div class="bg-green-200 dark:bg-green-800 h-2 rounded-full overflow-hidden">
+              <div 
+                class="bg-green-600 dark:bg-green-400 h-full transition-all duration-300"
+                style="width: {(importProgress.current / importProgress.total) * 100}%"
+              ></div>
+            </div>
+            <p class="text-xs mt-1">{importProgress.current} / {importProgress.total}</p>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -186,7 +238,7 @@
     <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6 mt-8">
       <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">ℹ️ How it works</h3>
       <ul class="text-sm text-blue-800 dark:text-blue-200 space-y-2">
-        <li>• Profiles are saved in <code class="bg-blue-100 dark:bg-blue-950 px-2 py-1 rounded">~/.config/BambuStudio/user/default/filament</code></li>
+        <li>• Profiles are saved in <code class="bg-blue-100 dark:bg-blue-950 px-2 py-1 rounded">~/.config/BambuStudio/user/[user_id]/filament</code></li>
         <li>• Restart Bambu Studio to see the new profiles</li>
         <li>• Profiles inherit base settings from the material type (PLA, PETG, etc.)</li>
         <li>• You can further customize them in Bambu Studio's filament settings</li>
@@ -205,8 +257,31 @@
       onclick={(e) => e.stopPropagation()}
     >
       <div class="p-6 border-b border-gray-200 dark:border-gray-700">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Import from Spoolman</h2>
-        <p class="text-gray-600 dark:text-gray-400 mt-1">Select a filament to import</p>
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Import from Spoolman</h2>
+            <p class="text-gray-600 dark:text-gray-400 mt-1">
+              {selectedFilaments.size > 0 ? `${selectedFilaments.size} selected` : 'Select filaments to import'}
+            </p>
+          </div>
+          {#if selectedFilaments.size > 0}
+            <div class="flex gap-2">
+              <button
+                onclick={clearSelection}
+                class="px-4 py-2 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-semibold"
+              >
+                Clear
+              </button>
+              <button
+                onclick={importSelected}
+                disabled={loading}
+                class="px-6 py-2 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50"
+              >
+                📥 Import {selectedFilaments.size}
+              </button>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="p-6 border-b border-gray-200 dark:border-gray-700">
@@ -246,12 +321,20 @@
       <div class="flex-1 overflow-y-auto p-6">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {#each $spoolmanFilaments as filament (filament.id)}
+            {@const isSelected = selectedFilaments.has(filament.id)}
             <button
-              onclick={() => importFromSpoolman(filament)}
-              disabled={loading}
-              class="bg-white dark:bg-gray-700 rounded-lg shadow hover:shadow-lg transition-all p-4 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={() => toggleSelection(filament.id)}
+              class="bg-white dark:bg-gray-700 rounded-lg shadow hover:shadow-lg transition-all p-4 text-left {isSelected ? 'ring-2 ring-primary' : ''}"
             >
               <div class="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onchange={() => toggleSelection(filament.id)}
+                  onclick={(e) => e.stopPropagation()}
+                  class="mt-1 w-5 h-5 text-primary rounded focus:ring-primary"
+                />
+                
                 <div
                   class="w-12 h-12 rounded flex-shrink-0 border-2 border-gray-200 dark:border-gray-600"
                   style="background-color: {filament.color_hex ? '#' + filament.color_hex.replace('#', '') : '#888888'}"
@@ -282,12 +365,23 @@
       </div>
 
       <div class="p-6 border-t border-gray-200 dark:border-gray-700">
-        <button
-          onclick={() => showSpoolmanModal = false}
-          class="w-full px-6 py-3 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-semibold"
-        >
-          Close
-        </button>
+        <div class="flex gap-3">
+          <button
+            onclick={() => showSpoolmanModal = false}
+            class="flex-1 px-6 py-3 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors font-semibold"
+          >
+            Close
+          </button>
+          {#if selectedFilaments.size > 0}
+            <button
+              onclick={importSelected}
+              disabled={loading}
+              class="flex-1 px-6 py-3 bg-primary text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50"
+            >
+              📥 Import {selectedFilaments.size} Profile{selectedFilaments.size !== 1 ? 's' : ''}
+            </button>
+          {/if}
+        </div>
       </div>
     </div>
   </div>
