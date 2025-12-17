@@ -4,11 +4,13 @@ mod db;
 mod mqtt;
 mod spoolman;
 mod filamentcolors;
+mod bambu_studio;
 
 use db::{Database, FilamentProfile, Settings};
 use mqtt::{BambuMqttClient, BambuPrinterConfig, FilamentSyncCommand, AMSStatus};
 use spoolman::{SpoolmanClient, SpoolmanFilament, SpoolmanResponse};
 use filamentcolors::{FilamentColorsClient, FilamentColorsResponse};
+use bambu_studio::{BambuStudioManager, BambuFilamentProfile};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -17,6 +19,7 @@ struct AppState {
     mqtt: Mutex<BambuMqttClient>,
     spoolman: Arc<SpoolmanClient>,
     filament_colors: Arc<FilamentColorsClient>,
+    bambu_studio: Mutex<Option<BambuStudioManager>>,
 }
 
 #[tauri::command]
@@ -185,11 +188,103 @@ fn debug_filament(filament: SpoolmanFilament) {
     println!("════════════════════════════════════════\n");
 }
 
+#[tauri::command]
+fn list_bambu_profiles(state: State<AppState>) -> Result<Vec<String>, String> {
+    let manager_opt = state.bambu_studio.lock().unwrap();
+    match manager_opt.as_ref() {
+        Some(manager) => manager.list_profiles(),
+        None => Err("Bambu Studio not configured".to_string()),
+    }
+}
+
+#[tauri::command]
+fn read_bambu_profile(
+    state: State<AppState>,
+    name: String,
+) -> Result<BambuFilamentProfile, String> {
+    let manager_opt = state.bambu_studio.lock().unwrap();
+    match manager_opt.as_ref() {
+        Some(manager) => manager.read_profile(&name),
+        None => Err("Bambu Studio not configured".to_string()),
+    }
+}
+
+#[tauri::command]
+fn create_bambu_profile(
+    state: State<AppState>,
+    profile: BambuFilamentProfile,
+) -> Result<String, String> {
+    let manager_opt = state.bambu_studio.lock().unwrap();
+    match manager_opt.as_ref() {
+        Some(manager) => manager.create_profile(&profile),
+        None => Err("Bambu Studio not configured".to_string()),
+    }
+}
+
+#[tauri::command]
+fn update_bambu_profile(
+    state: State<AppState>,
+    name: String,
+    profile: BambuFilamentProfile,
+) -> Result<(), String> {
+    let manager_opt = state.bambu_studio.lock().unwrap();
+    match manager_opt.as_ref() {
+        Some(manager) => manager.update_profile(&name, &profile),
+        None => Err("Bambu Studio not configured".to_string()),
+    }
+}
+
+#[tauri::command]
+fn delete_bambu_profile(state: State<AppState>, name: String) -> Result<(), String> {
+    let manager_opt = state.bambu_studio.lock().unwrap();
+    match manager_opt.as_ref() {
+        Some(manager) => manager.delete_profile(&name),
+        None => Err("Bambu Studio not configured".to_string()),
+    }
+}
+
+#[tauri::command]
+fn sync_spoolman_to_bambu_studio(
+    state: State<AppState>,
+    vendor: String,
+    name: String,
+    material: String,
+    color_hex: String,
+    nozzle_temp: u16,
+    bed_temp: u16,
+    density: f32,
+) -> Result<String, String> {
+    let manager_opt = state.bambu_studio.lock().unwrap();
+    match manager_opt.as_ref() {
+        Some(manager) => manager.create_from_spoolman(
+            &vendor,
+            &name,
+            &material,
+            &color_hex,
+            nozzle_temp,
+            bed_temp,
+            density,
+        ),
+        None => Err("Bambu Studio not configured".to_string()),
+    }
+}
+
 fn main() {
     let db = Database::new().expect("Failed to initialize database");
     let mqtt = BambuMqttClient::new().expect("Failed to initialize MQTT client");
     let spoolman = Arc::new(SpoolmanClient::new());
     let filament_colors = Arc::new(FilamentColorsClient::new());
+    
+    let bambu_studio = match BambuStudioManager::new() {
+        Ok(manager) => {
+            println!("✅ Bambu Studio integration enabled");
+            Some(manager)
+        }
+        Err(e) => {
+            println!("⚠️  Bambu Studio integration disabled: {}", e);
+            None
+        }
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -198,6 +293,7 @@ fn main() {
             mqtt: Mutex::new(mqtt),
             spoolman,
             filament_colors,
+            bambu_studio: Mutex::new(bambu_studio),
         })
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -221,6 +317,12 @@ fn main() {
             sync_spoolman_db,
             get_filament_swatches,
             debug_filament,
+            list_bambu_profiles,
+            read_bambu_profile,
+            create_bambu_profile,
+            update_bambu_profile,
+            delete_bambu_profile,
+            sync_spoolman_to_bambu_studio,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
