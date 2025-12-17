@@ -325,9 +325,10 @@ impl BambuMqttClient {
         rt.block_on(async {
             let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
 
-            let event_task = tokio::spawn(async move {
-                while let Ok(_event) = event_loop.poll().await {}
-            });
+            let report_topic = format!("device/{}/report", config.serial_number);
+            println!("📡 Subscribing to report topic: {}", report_topic);
+            client.subscribe(&report_topic, QoS::AtMostOnce).await
+                .map_err(|e| format!("Subscribe failed: {}", e))?;
 
             tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -361,15 +362,76 @@ impl BambuMqttClient {
                 .await
                 .map_err(|e| format!("Failed to publish: {}", e))?;
 
-            println!("✅ Message published, waiting 2s for confirmation...");
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            client.disconnect().await.ok();
-            event_task.abort();
+            println!("✅ Message published, waiting for confirmation...");
+            
+            let target_slot = command.slot_id;
+            let target_material = command.material.clone();
+            let target_color = format!("{}FF", color_hex).to_uppercase();
+            
+            let confirmation_result = tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match event_loop.poll().await {
+                        Ok(Event::Incoming(Packet::Publish(publish))) => {
+                            if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
+                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                                    if let Some(print_obj) = json.get("print") {
+                                        if let Some(ams_obj) = print_obj.get("ams") {
+                                            if let Some(ams_array) = ams_obj.get("ams").and_then(|a| a.as_array()) {
+                                                for ams_unit in ams_array.iter() {
+                                                    if let Some(tray_array) = ams_unit.get("tray").and_then(|t| t.as_array()) {
+                                                        if let Some(tray_obj) = tray_array.get(target_slot as usize) {
+                                                            let current_type = tray_obj.get("tray_type")
+                                                                .and_then(|t| t.as_str())
+                                                                .unwrap_or("");
+                                                            let current_color = tray_obj.get("tray_color")
+                                                                .and_then(|c| c.as_str())
+                                                                .unwrap_or("")
+                                                                .to_uppercase();
+                                                            
+                                                            println!("🔍 Checking slot {}: type={}, color={}", 
+                                                                target_slot, current_type, current_color);
+                                                            
+                                                            if current_type == target_material && current_color == target_color {
+                                                                println!("✅ Confirmation received: settings applied successfully");
+                                                                return Ok(());
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(_) => {},
+                        Err(e) => {
+                            eprintln!("❌ Event loop error: {:?}", e);
+                            return Err(format!("Connection error: {:?}", e));
+                        }
+                    }
+                }
+            }).await;
 
-            Ok(format!(
-                "Synced {} {} to AMS slot {}",
-                command.brand, command.material, command.slot_id
-            ))
+            client.disconnect().await.ok();
+
+            match confirmation_result {
+                Ok(Ok(())) => {
+                    println!("✅ Sync confirmed and persisted");
+                    Ok(format!(
+                        "Synced {} {} to AMS slot {}",
+                        command.brand, command.material, command.slot_id
+                    ))
+                }
+                Ok(Err(e)) => Err(e),
+                Err(_) => {
+                    println!("⚠️ No confirmation received within 10s, but command was sent");
+                    Ok(format!(
+                        "Sent {} {} to AMS slot {} (no confirmation)",
+                        command.brand, command.material, command.slot_id
+                    ))
+                }
+            }
         })
     }
 
