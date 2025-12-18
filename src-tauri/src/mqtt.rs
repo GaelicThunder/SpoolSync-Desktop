@@ -85,6 +85,23 @@ impl rumqttc::tokio_rustls::rustls::client::danger::ServerCertVerifier for NoCer
     }
 }
 
+fn material_to_tray_info_idx(material: &str) -> String {
+    match material.to_uppercase().as_str() {
+        "PLA" => "GFL99".to_string(),
+        "PETG" => "GFB99".to_string(),
+        "ABS" => "GFB00".to_string(),
+        "TPU" => "GFU01".to_string(),
+        "ASA" => "GFB98".to_string(),
+        "PA" | "NYLON" => "GFN99".to_string(),
+        "PC" => "GFC00".to_string(),
+        "PVA" => "GFS00".to_string(),
+        "PLA-CF" | "PLACF" => "GFL98".to_string(),
+        "PETG-CF" | "PETGCF" => "GFB98".to_string(),
+        "PA-CF" | "PACF" => "GFN03".to_string(),
+        _ => "GFL99".to_string(),
+    }
+}
+
 pub struct BambuMqttClient {
     #[allow(dead_code)]
     client_id: String,
@@ -333,6 +350,9 @@ impl BambuMqttClient {
             tokio::time::sleep(Duration::from_millis(500)).await;
 
             let color_hex = command.color.trim_start_matches('#');
+            let tray_info_idx = material_to_tray_info_idx(&command.material);
+            
+            println!("🧵 Material: {} → tray_info_idx: {}", command.material, tray_info_idx);
             
             let payload = serde_json::json!({
                 "print": {
@@ -340,10 +360,10 @@ impl BambuMqttClient {
                     "command": "ams_filament_setting",
                     "ams_id": 0,
                     "tray_id": command.slot_id,
-                    "tray_info_idx": format!("{}", command.slot_id),
+                    "tray_info_idx": tray_info_idx,
                     "tray_color": format!("{}FF", color_hex),
-                    "nozzle_temp_min": command.nozzle_temp.to_string(),
-                    "nozzle_temp_max": (command.nozzle_temp + 10).to_string(),
+                    "nozzle_temp_min": command.nozzle_temp,
+                    "nozzle_temp_max": command.nozzle_temp + 10,
                     "tray_type": command.material,
                 }
             });
