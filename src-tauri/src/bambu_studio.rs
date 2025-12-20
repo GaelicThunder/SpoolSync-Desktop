@@ -279,13 +279,17 @@ impl BambuStudioManager {
             timestamp
         );
         
-        fs::write(&info_path, info_content)
+        fs::write(&info_path, info_content.clone())
             .map_err(|e| format!("Failed to write .info file: {}", e))?;
         
         println!("\n✅ Profilo creato: {}", json_path.display());
         println!("   File ID: {}", profile.filament_id[0]);
         println!("   Setting ID: {}", profile.setting_id);
         println!("   Inherits: {}", profile.inherits);
+        println!("\n✅ .info file contents:");
+        for (i, line) in info_content.lines().enumerate() {
+            println!("   [{}] {}", i, line);
+        }
         println!("\n✅ Bambu Studio dovrebbe vederlo automaticamente!");
         println!("   Se non lo vede, riavvia Bambu Studio.\n");
         
