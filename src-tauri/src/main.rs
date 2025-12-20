@@ -169,7 +169,7 @@ async fn get_filament_swatches(
 #[tauri::command]
 fn debug_filament(filament: SpoolmanFilament) {
     println!("\n🔍 DEBUG FILAMENT DATA:");
-    println!("════════════════════════════════════════");
+    println!("═══════════════════════════════════════=");
     println!("ID: {}", filament.id);
     println!("Manufacturer: {}", filament.manufacturer);
     println!("Name: {}", filament.name);
@@ -185,7 +185,7 @@ fn debug_filament(filament: SpoolmanFilament) {
     println!("Bed Temp Range: {:?}", filament.bed_temp_range);
     println!("Translucent: {}", filament.translucent);
     println!("Glow: {}", filament.glow);
-    println!("════════════════════════════════════════\n");
+    println!("═══════════════════════════════════════════\n");
 }
 
 #[tauri::command]
@@ -252,7 +252,6 @@ fn sync_spoolman_to_bambu_studio(
     color_hex: String,
     nozzle_temp: u16,
     bed_temp: u16,
-    printer: String,
 ) -> Result<String, String> {
     let manager_opt = state.bambu_studio.lock().unwrap();
     match manager_opt.as_ref() {
@@ -263,7 +262,7 @@ fn sync_spoolman_to_bambu_studio(
             &color_hex,
             nozzle_temp,
             bed_temp,
-            &printer,
+            "X1C",
         ),
         None => Err("Bambu Studio not configured".to_string()),
     }
