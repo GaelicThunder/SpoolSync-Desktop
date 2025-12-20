@@ -252,7 +252,7 @@ fn sync_spoolman_to_bambu_studio(
     color_hex: String,
     nozzle_temp: u16,
     bed_temp: u16,
-    density: f32,
+    printer: String,
 ) -> Result<String, String> {
     let manager_opt = state.bambu_studio.lock().unwrap();
     match manager_opt.as_ref() {
@@ -263,7 +263,7 @@ fn sync_spoolman_to_bambu_studio(
             &color_hex,
             nozzle_temp,
             bed_temp,
-            density,
+            &printer,
         ),
         None => Err("Bambu Studio not configured".to_string()),
     }
