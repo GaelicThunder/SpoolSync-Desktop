@@ -282,10 +282,16 @@ impl BambuStudioManager {
         fs::write(&info_path, info_content)
             .map_err(|e| format!("Failed to write .info file: {}", e))?;
         
-        println!("✅ Created Bambu Studio profile: {}", json_path.display());
-        println!("   Filament ID: {}", profile.filament_id[0]);
+        println!("\n✅ Profile creato: {}", json_path.display());
+        println!("   File ID: {}", profile.filament_id[0]);
         println!("   Setting ID: {}", profile.setting_id);
-        println!("   Inherits: {}", profile.inherits);
+        println!("\n⚠️  IMPORTANTE: Bambu Studio NON auto-rileva i profili!");
+        println!("   Importali manualmente:");
+        println!("\n   1. Apri Bambu Studio");
+        println!("   2. File > Import > Import Configs");
+        println!("   3. Naviga a: {}", user_dir.display());
+        println!("   4. Seleziona il file .json");
+        println!("   5. Appariranno sotto 'User Presets'\n");
         
         Ok(filename)
     }
@@ -320,7 +326,7 @@ impl BambuStudioManager {
                 fs::write(&info_path, info_content)
                     .map_err(|e| format!("Failed to update .info file: {}", e))?;
                 
-                println!("✅ Updated Bambu Studio profile: {}", name);
+                println!("✅ Profilo aggiornato: {}", name);
                 return Ok(());
             }
         }
@@ -349,7 +355,7 @@ impl BambuStudioManager {
         }
         
         if deleted {
-            println!("✅ Deleted Bambu Studio profile: {}", name);
+            println!("✅ Profilo eliminato: {}", name);
             Ok(())
         } else {
             Err(format!("Profile '{}' not found", name))
