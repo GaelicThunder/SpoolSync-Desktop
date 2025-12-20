@@ -36,6 +36,13 @@ pub struct AMSStatus {
     pub trays: Vec<AMSTrayInfo>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PrinterState {
+    pub is_printing: bool,
+    pub is_paused: bool,
+    pub print_state: Option<String>,
+}
+
 #[derive(Debug)]
 struct NoCertVerification;
 
@@ -205,6 +212,64 @@ impl BambuMqttClient {
         })
     }
 
+    async fn check_printer_idle(&self, config: &BambuPrinterConfig) -> Result<(), String> {
+        let (client, mut event_loop) = self.create_mqtt_client(config).await?;
+        
+        let report_topic = format!("device/{}/report", config.serial_number);
+        client.subscribe(&report_topic, QoS::AtMostOnce).await
+            .map_err(|e| format!("Subscribe failed: {}", e))?;
+
+        println!("\n🔍 Checking printer state...");
+        
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match event_loop.poll().await {
+                    Ok(Event::Incoming(Packet::Publish(publish))) => {
+                        if let Ok(payload_str) = String::from_utf8(publish.payload.to_vec()) {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                                if let Some(print_obj) = json.get("print") {
+                                    let command = print_obj.get("command").and_then(|c| c.as_str()).unwrap_or("");
+                                    
+                                    if command == "push_status" {
+                                        let gcode_state = print_obj.get("gcode_state").and_then(|s| s.as_str()).unwrap_or("");
+                                        let lifecycle = print_obj.get("lifecycle").and_then(|l| l.as_str()).unwrap_or("");
+                                        
+                                        println!("   State: {}", if gcode_state.is_empty() { "idle" } else { gcode_state });
+                                        println!("   Lifecycle: {}", if lifecycle.is_empty() { "ready" } else { lifecycle });
+                                        
+                                        if !gcode_state.is_empty() {
+                                            return Err(format!("❌ Printer is NOT idle! Current state: {}", gcode_state));
+                                        }
+                                        
+                                        if lifecycle == "printing" || lifecycle == "paused" {
+                                            return Err(format!("❌ Printer is in {} mode! Cannot modify AMS while active job", lifecycle));
+                                        }
+                                        
+                                        println!("✅ Printer is IDLE - safe to sync");
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(_) => {},
+                    Err(e) => {
+                        eprintln!("❌ Event loop error: {:?}", e);
+                        return Err(format!("Connection error: {:?}", e));
+                    }
+                }
+            }
+        }).await;
+
+        client.disconnect().await.ok();
+        
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err("Timeout checking printer state".to_string()),
+        }
+    }
+
     pub fn get_ams_status(&self, config: BambuPrinterConfig) -> Result<Vec<AMSStatus>, String> {
         println!("\n📊 GET AMS STATUS");
         println!("═══════════════════════════════════════");
@@ -340,6 +405,16 @@ impl BambuMqttClient {
             .map_err(|e| format!("Failed to create runtime: {}", e))?;
 
         rt.block_on(async {
+            if let Err(e) = self.check_printer_idle(&config).await {
+                eprintln!("\n{}", e);
+                eprintln!("\n⚠️ SYNC ABORTED: Cannot modify AMS settings while printer is active");
+                eprintln!("\n📝 Solution:");
+                eprintln!("   1. Stop or cancel the current print job");
+                eprintln!("   2. Wait for printer to return to idle state");
+                eprintln!("   3. Then retry the AMS sync");
+                return Err(e);
+            }
+
             let (client, mut event_loop) = self.create_mqtt_client(&config).await?;
 
             let report_topic = format!("device/{}/report", config.serial_number);
