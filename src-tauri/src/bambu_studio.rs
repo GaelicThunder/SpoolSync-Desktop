@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -78,7 +76,7 @@ pub struct BambuFilamentProfile {
 }
 
 impl BambuFilamentProfile {
-    pub fn new_for_material(material: &str, printer: &str) -> Self {
+    pub fn new_for_material(material: &str, _printer: &str) -> Self {
         let (inherits, filament_id_prefix) = match material {
             "PLA" => ("Bambu PLA Basic @BBL X1C", "GFL"),
             "PETG" => ("Bambu PETG Basic @BBL X1C", "GFB"),
@@ -207,6 +205,22 @@ impl BambuStudioManager {
         Ok(profiles)
     }
     
+    pub fn read_profile(&self, name: &str) -> Result<BambuFilamentProfile, String> {
+        for user_dir in &self.user_dirs {
+            let path = user_dir.join(format!("{}.json", name));
+            
+            if path.exists() {
+                let content = fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read profile {}: {}", name, e))?;
+                
+                return serde_json::from_str(&content)
+                    .map_err(|e| format!("Failed to parse profile {}: {}", name, e));
+            }
+        }
+        
+        Err(format!("Profile '{}' not found", name))
+    }
+    
     pub fn create_from_spoolman(
         &self,
         vendor: &str,
@@ -274,6 +288,44 @@ impl BambuStudioManager {
         println!("   Inherits: {}", profile.inherits);
         
         Ok(filename)
+    }
+    
+    pub fn update_profile(&self, name: &str, profile: &BambuFilamentProfile) -> Result<(), String> {
+        for user_dir in &self.user_dirs {
+            let filename = self.sanitize_filename(name);
+            let json_path = user_dir.join(format!("{}.json", filename));
+            
+            if json_path.exists() {
+                let json_content = serde_json::to_string_pretty(profile)
+                    .map_err(|e| format!("Failed to serialize profile: {}", e))?;
+                
+                fs::write(&json_path, json_content)
+                    .map_err(|e| format!("Failed to update profile: {}", e))?;
+                
+                let info_path = user_dir.join(format!("{}.info", filename));
+                let user_id = self.extract_user_id(user_dir);
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                
+                let info_content = format!(
+                    "sync_info =\n\nuser_id = {}\n\nsetting_id = {}\n\nbase_id = {}\n\nupdated_time = {}\n",
+                    user_id, 
+                    profile.setting_id,
+                    profile.filament_id[0],
+                    timestamp
+                );
+                
+                fs::write(&info_path, info_content)
+                    .map_err(|e| format!("Failed to update .info file: {}", e))?;
+                
+                println!("✅ Updated Bambu Studio profile: {}", name);
+                return Ok(());
+            }
+        }
+        
+        Err(format!("Profile '{}' not found", name))
     }
     
     pub fn delete_profile(&self, name: &str) -> Result<(), String> {
