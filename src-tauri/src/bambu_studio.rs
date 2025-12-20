@@ -272,7 +272,7 @@ impl BambuStudioManager {
             .as_secs();
         
         let info_content = format!(
-            "sync_info =\n\nuser_id = {}\n\nsetting_id = {}\n\nbase_id = {}\n\nupdated_time = {}\n",
+            "sync_info = create\nuser_id = {}\nsetting_id = {}\nbase_id = {}\nupdated_time = {}\n",
             user_id, 
             profile.setting_id,
             profile.filament_id[0],
@@ -282,16 +282,12 @@ impl BambuStudioManager {
         fs::write(&info_path, info_content)
             .map_err(|e| format!("Failed to write .info file: {}", e))?;
         
-        println!("\n✅ Profile creato: {}", json_path.display());
+        println!("\n✅ Profilo creato: {}", json_path.display());
         println!("   File ID: {}", profile.filament_id[0]);
         println!("   Setting ID: {}", profile.setting_id);
-        println!("\n⚠️  IMPORTANTE: Bambu Studio NON auto-rileva i profili!");
-        println!("   Importali manualmente:");
-        println!("\n   1. Apri Bambu Studio");
-        println!("   2. File > Import > Import Configs");
-        println!("   3. Naviga a: {}", user_dir.display());
-        println!("   4. Seleziona il file .json");
-        println!("   5. Appariranno sotto 'User Presets'\n");
+        println!("   Inherits: {}", profile.inherits);
+        println!("\n✅ Bambu Studio dovrebbe vederlo automaticamente!");
+        println!("   Se non lo vede, riavvia Bambu Studio.\n");
         
         Ok(filename)
     }
@@ -316,7 +312,7 @@ impl BambuStudioManager {
                     .as_secs();
                 
                 let info_content = format!(
-                    "sync_info =\n\nuser_id = {}\n\nsetting_id = {}\n\nbase_id = {}\n\nupdated_time = {}\n",
+                    "sync_info = create\nuser_id = {}\nsetting_id = {}\nbase_id = {}\nupdated_time = {}\n",
                     user_id, 
                     profile.setting_id,
                     profile.filament_id[0],
